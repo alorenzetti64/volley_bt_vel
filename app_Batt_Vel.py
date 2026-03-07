@@ -103,27 +103,90 @@ scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend", "Vel
 
 df_master = load_master_from_github()
 
+import warnings
+# Nasconde i messaggi di avviso di openpyxl e pandas
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 if scelta == "Caricamento Dati":
     st.title("🚀 Database")
     tab1, tab2 = st.tabs(["Carica Excel", "Pulisci Database"])
+    
     with tab1:
-        uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
-        if uploaded:
-            df_new = pd.read_excel(uploaded, sheet_name="Foglio1").iloc[:, 0:8]
-            df_new.columns = COLUMNS_A_H
-            if st.button("🚀 Sincronizza su GitHub"):
-                # Concateniamo e salviamo con la nuova logica string-only
-                df_combined = pd.concat([df_master, df_new]).drop_duplicates()
-                save_to_github(df_combined)
-                st.balloons()
-                st.success("Dati sincronizzati!")
+            uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
+            if uploaded:
+                # Carica i dati ignorando le formattazioni di Excel che generano warning
+                df_new = pd.read_excel(uploaded, sheet_name="Foglio1").iloc[:, 0:8]
+                df_new.columns = COLUMNS_A_H
+                
+                # --- FILTRO SICUREZZA ANTI-NAT ---
+                # Rimuove le righe completamente vuote o dove mancano Data e Player
+                df_new = df_new.dropna(subset=['Data', 'Player'], how='all')
+                # Elimina esplicitamente le righe che Pandas legge come 'NaT' (Not a Time)
+                df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
+                # ---------------------------------
+
+                if st.button("🚀 Sincronizza su GitHub"):
+                    # Unisce i vecchi dati con i nuovi (puliti)
+                    df_combined = pd.concat([df_master, df_new]).drop_duplicates()
+                    
+                    # Pulizia finale di sicurezza sul database totale prima del salvataggio
+                    df_combined = df_combined.dropna(subset=['Data', 'Player'], how='all')
+                    df_combined = df_combined[df_combined['Data'].astype(str).str.upper() != 'NAT']
+                    
+                    save_to_github(df_combined)
+                    st.success("Dati caricati! Le righe vuote e i valori NaT sono stati rimossi automaticamente.")
+                    st.balloons()
+                    st.rerun()
+
     with tab2:
+        st.subheader("🗑️ Gestione Partite in Database")
         if not df_master.empty:
-            date_list = sorted([str(x) for x in df_master['Data'].dropna().unique() if str(x) != ''])
-            d_to_del = st.selectbox("Seleziona Data da eliminare:", date_list)
-            if st.button("🔥 Elimina Record"):
-                save_to_github(df_master[~(df_master['Data'].astype(str) == d_to_del)])
-                st.rerun()
+            # 1. Crea la lista dei match presenti nel database
+            df_partite = df_master[['Data', 'Avv.', 'Partita']].drop_duplicates().copy()
+            # 2. Inserisce la colonna per le checkbox
+            df_partite.insert(0, "Elimina", False)
+            
+            st.write("Seleziona i match da rimuovere e clicca sul tasto 'Conferma' in fondo:")
+            
+            # 3. Visualizza la tabella interattiva (Data Editor)
+            edited_df = st.data_editor(
+                df_partite,
+                column_config={
+                    "Elimina": st.column_config.CheckboxColumn(
+                        "Seleziona",
+                        help="Spunta per eliminare il match",
+                        default=False,
+                    ),
+                    "Data": st.column_config.TextColumn("Data Match"),
+                    "Avv.": st.column_config.TextColumn("Avversario"),
+                    "Partita": st.column_config.TextColumn("Competizione")
+                },
+                disabled=["Data", "Avv.", "Partita"], # Blocca le celle di testo per sicurezza
+                hide_index=True,
+                width="stretch"
+            )
+            
+            # 4. Recupera i match selezionati
+            partite_da_eliminare = edited_df[edited_df['Elimina'] == True]
+            
+            if not partite_da_eliminare.empty:
+                st.warning(f"⚠️ Hai selezionato {len(partite_da_eliminare)} match per l'eliminazione.")
+                if st.button("🔥 Conferma ed Elimina Record Selezionati"):
+                    # Filtra il database master rimuovendo i match selezionati
+                    for _, row in partite_da_eliminare.iterrows():
+                        df_master = df_master[~(
+                            (df_master['Data'].astype(str) == str(row['Data'])) & 
+                            (df_master['Avv.'].astype(str) == str(row['Avv.']))
+                        )]
+                    
+                    save_to_github(df_master)
+                    st.success("Database aggiornato con successo!")
+                    st.rerun()
+            else:
+                st.info("Nessuna partita selezionata. Usa le caselle sopra per procedere.")
+        else:
+            st.info("Il database è attualmente vuoto.")
 
 elif scelta == "Match":
     st.title("🏟️ Report Match")
