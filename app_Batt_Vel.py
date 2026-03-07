@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from github import Github, Auth
 import io
+import time
 
 # --- 1. CONFIGURAZIONE E COSTANTI ---
 COLUMNS_A_H = ['Data', 'Partita', 'Avv.', 'Team', 'Set', 'Player', 'Tipo', 'Vel.']
@@ -283,4 +284,5 @@ elif scelta == "Match":
                     fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
                     st.plotly_chart(fig_bar, width='stretch')
                 else:
+
                     st.warning("Dati di velocità non disponibili.")
