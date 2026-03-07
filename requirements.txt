@@ -4,3 +4,4 @@ plotly
 openpyxl
 PyGithub
 pyarrow
+xlsxwriter
