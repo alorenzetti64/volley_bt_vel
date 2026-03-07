@@ -112,29 +112,29 @@ if scelta == "Caricamento Dati":
     st.title("🚀 Database")
     tab1, tab2 = st.tabs(["Carica Excel", "Pulisci Database"])
     
-with tab1:
-        uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
-        if uploaded:
-            df_new = pd.read_excel(uploaded, sheet_name="Foglio1").iloc[:, 0:8]
-            df_new.columns = COLUMNS_A_H
-            
-            # Filtro anti-NaT
-            df_new = df_new.dropna(subset=['Data', 'Player'], how='all')
-            df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
+    with tab1:
+            uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
+            if uploaded:
+                df_new = pd.read_excel(uploaded, sheet_name="Foglio1").iloc[:, 0:8]
+                df_new.columns = COLUMNS_A_H
+                
+                # Filtro anti-NaT
+                df_new = df_new.dropna(subset=['Data', 'Player'], how='all')
+                df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
 
-            if st.button("🚀 Sincronizza su GitHub"):
-                with st.spinner("Sincronizzazione in corso..."):
-                    df_combined = pd.concat([df_master, df_new]).drop_duplicates()
-                    # Pulizia finale
-                    df_combined = df_combined.dropna(subset=['Data'], how='any')
-                    df_combined = df_combined[df_combined['Data'].astype(str).str.upper() != 'NAT']
-                    
-                    save_to_github(df_combined)
-                    
-                st.success("Dati sincronizzati!")
-                st.balloons() # <--- I palloncini ora voleranno!
-                time.sleep(2) # <--- Ritardo magico
-                st.rerun()
+                if st.button("🚀 Sincronizza su GitHub"):
+                    with st.spinner("Sincronizzazione in corso..."):
+                        df_combined = pd.concat([df_master, df_new]).drop_duplicates()
+                        # Pulizia finale
+                        df_combined = df_combined.dropna(subset=['Data'], how='any')
+                        df_combined = df_combined[df_combined['Data'].astype(str).str.upper() != 'NAT']
+                        
+                        save_to_github(df_combined)
+                        
+                    st.success("Dati sincronizzati!")
+                    st.balloons() # <--- I palloncini ora voleranno!
+                    time.sleep(2) # <--- Ritardo magico
+                    st.rerun()
 
     with tab2:
         st.subheader("🗑️ Gestione Partite in Database")
