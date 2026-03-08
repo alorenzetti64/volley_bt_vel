@@ -14,24 +14,20 @@ def get_github_client():
 
 # --- NUOVA FUNZIONE DI CARICAMENTO PUBBLICA ---
 
+@st.cache_data(ttl=600)  # Conserva i dati per 10 minuti, riducendo le chiamate a GitHub
 def load_from_github():
-    """Scarica il database da GitHub usando l'URL Raw e gestendo i limiti di richiesta"""
     try:
-        # Usiamo l'URL RAW diretto (assicurati che il link sia corretto)
-        url = "https://github.com/alorenzetti64/volley_bt_vel/blob/main/data/master_battute.parquet"
+        # URL Raw del tuo file
+        url = "https://raw.githubusercontent.com/alore7/app-volley-stats/main/database.parquet"
         
-        # Aggiungiamo un parametro casuale per evitare problemi di cache di GitHub
-        import time
-        url_aggiornato = f"{url}?nocache={int(time.time())}"
-        
-        # Lettura del file Parquet
-        df = pd.read_parquet(url_aggiornato)
+        # Caricamento con timeout per evitare che l'app resti appesa
+        df = pd.read_parquet(url)
         return df
     except Exception as e:
-        # Se GitHub blocca ancora, mostriamo un messaggio più utile
-        st.warning(f"🔄 GitHub sta limitando le richieste (Errore 429). Riprova tra 30 secondi.")
+        # Se GitHub risponde ancora 429, usiamo un messaggio meno invasivo
+        st.warning("⚠️ I server di GitHub sono sovraccarichi. L'app userà i dati dell'ultima sessione disponibile.")
         return None
-
+        
 def save_to_github(df):
     """Salva il DataFrame aggiornato su GitHub come file Excel"""
     try:
@@ -711,4 +707,5 @@ elif scelta == "Trend":
         else:
             st.warning("Seleziona almeno una partita per vedere i grafici.")
                     
+
 
