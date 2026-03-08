@@ -12,22 +12,22 @@ def get_github_client():
     auth = Auth.Token(st.secrets["github"]["token"])
     return Github(auth=auth)
 
+# --- NUOVA FUNZIONE DI CARICAMENTO PUBBLICA ---
+
 def load_from_github():
-    """Scarica il database Excel da GitHub e lo trasforma in un DataFrame"""
+    """Scarica il database da GitHub tramite URL pubblico senza Token"""
     try:
-        g = get_github_client()
-        repo = g.get_repo(st.secrets["github"]["repository"])
-        path = st.secrets["github"]["file_path"]
-        
-        # Recupera il file dal repository
-        file_content = repo.get_contents(path)
-        # Legge il contenuto binario come file Excel
-        df = pd.read_parquet(io.BytesIO(file_content.decoded_content))
+        # INCOLLA QUI IL TUO URL RAW COPIATO DA GITHUB
+        url = "https://github.com/alorenzetti64/volley_bt_vel/blob/main/data/master_battute.parquet"        
+        # Lettura diretta
+        df = pd.read_parquet(url)
         return df
     except Exception as e:
-        # Se il file non esiste ancora o c'è un errore, restituisce None
-        st.error(f"⚠️ Impossibile caricare dati da GitHub: {e}")
+        st.error(f"⚠️ Errore nel caricamento automatico: {e}")
         return None
+
+# Nota: La funzione save_to_github continuerà a richiedere il token 
+# perché per SCRIVERE su GitHub serve sempre un permesso privato.
 
 def save_to_github(df):
     """Salva il DataFrame aggiornato su GitHub come file Excel"""
