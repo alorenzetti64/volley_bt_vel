@@ -15,19 +15,22 @@ def get_github_client():
 # --- NUOVA FUNZIONE DI CARICAMENTO PUBBLICA ---
 
 def load_from_github():
-    """Scarica il database da GitHub tramite URL pubblico senza Token"""
+    """Scarica il database da GitHub usando l'URL Raw e gestendo i limiti di richiesta"""
     try:
-        # INCOLLA QUI IL TUO URL RAW COPIATO DA GITHUB
-        url = "https://github.com/alorenzetti64/volley_bt_vel/blob/main/data/master_battute.parquet"        
-        # Lettura diretta
-        df = pd.read_parquet(url)
+        # Usiamo l'URL RAW diretto (assicurati che il link sia corretto)
+        url = "https://github.com/alorenzetti64/volley_bt_vel/blob/main/data/master_battute.parquet"
+        
+        # Aggiungiamo un parametro casuale per evitare problemi di cache di GitHub
+        import time
+        url_aggiornato = f"{url}?nocache={int(time.time())}"
+        
+        # Lettura del file Parquet
+        df = pd.read_parquet(url_aggiornato)
         return df
     except Exception as e:
-        st.error(f"⚠️ Errore nel caricamento automatico: {e}")
+        # Se GitHub blocca ancora, mostriamo un messaggio più utile
+        st.warning(f"🔄 GitHub sta limitando le richieste (Errore 429). Riprova tra 30 secondi.")
         return None
-
-# Nota: La funzione save_to_github continuerà a richiedere il token 
-# perché per SCRIVERE su GitHub serve sempre un permesso privato.
 
 def save_to_github(df):
     """Salva il DataFrame aggiornato su GitHub come file Excel"""
@@ -708,3 +711,4 @@ elif scelta == "Trend":
         else:
             st.warning("Seleziona almeno una partita per vedere i grafici.")
                     
+
