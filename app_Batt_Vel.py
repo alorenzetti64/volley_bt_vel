@@ -296,63 +296,72 @@ if scelta == "Caricamento Dati":
             st.info("Il database è attualmente vuoto.")
 
 elif scelta == "Match":
-        st.title("🏟️ Report Match")
-        if not df_master.empty:
-            competizioni = sorted([str(x) for x in df_master['Partita'].dropna().unique() if str(x) != ''])
-            c_sel = st.selectbox("Competizione:", competizioni)
-            
-            df_c = df_master[df_master['Partita'].astype(str) == c_sel].copy()
-            df_c['Match_Label'] = df_c['Data'].astype(str) + " vs " + df_c['Avv.'].astype(str)
-            
-            match_list = sorted([str(x) for x in df_c['Match_Label'].dropna().unique() if str(x) != ''], reverse=True)
-            m_sel = st.multiselect("Seleziona Match:", match_list)
-            
-            if m_sel:
-                m_rep = st.radio("Vista:", ["REPORT", "GRAFICI"], horizontal=True)
-                df_report = df_c[df_c['Match_Label'].isin(m_sel)].copy()
-                df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
-                info = df_report.iloc[0]
-                nome_avv = str(info['Avv.']).upper()
-                cols_h = ["Fase", "Tot", "Spin", "Media Km/h", ">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
+    st.title("🏟️ Report Match")
+    if not df_master.empty:
+        # 1. Selettori iniziali (rientro di 4 spazi)
+        competizioni = sorted([str(x) for x in df_master['Partita'].dropna().unique() if str(x) != ''])
+        c_sel = st.selectbox("Competizione:", competizioni)
+        
+        df_c = df_master[df_master['Partita'].astype(str) == c_sel].copy()
+        df_c['Match_Label'] = df_c['Data'].astype(str) + " vs " + df_c['Avv.'].astype(str)
+        
+        match_list = sorted([str(x) for x in df_c['Match_Label'].dropna().unique() if str(x) != ''], reverse=True)
+        m_sel = st.multiselect("Seleziona Match:", match_list)
+        
+        if m_sel:
+            # 2. Scelta vista e preparazione dati (rientro di 8 spazi)
+            m_rep = st.radio("Vista:", ["REPORT", "GRAFICI"], horizontal=True)
+            df_report = df_c[df_c['Match_Label'].isin(m_sel)].copy()
+            df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
+            info = df_report.iloc[0]
+            nome_avv = str(info['Avv.']).upper()
+            cols_h = ["Fase", "Tot", "Spin", "Media Km/h", ">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
 
-                if m_rep == "REPORT":
-                    st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
-                    col1, col2, col3 = st.columns(3)
-                    col1.success(f"**Manifestazione**\n\n{info['Partita']}")
-                    col2.success(f"**Data**\n\n{info['Data']}")
-                    col3.success(f"**Avversario**\n\n{nome_avv}")
+            if m_rep == "REPORT":
+                # 3. Visualizzazione Report (rientro di 12 spazi)
+                st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
+                col1, col2, col3 = st.columns(3)
+                col1.success(f"**Manifestazione**\n\n{info['Partita']}")
+                col2.success(f"**Data**\n\n{info['Data']}")
+                col3.success(f"**Avversario**\n\n{nome_avv}")
+                
+                # --- TABELLA PERUGIA ---
+                st.markdown("### 🏐 PERUGIA")
+                df_p = df_report[df_report['Team'].astype(str).str.upper() == 'PERUGIA'].copy()
+                r_p = [["MATCH"] + calcola_stats(df_p)]
+                for s in sorted(df_p['Set'].unique()): 
+                    r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
+                
+                st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+
+                # --- TABELLA AVVERSARIO ---
+                st.markdown(f"### 🏐 {nome_avv}")
+                df_o = df_report[df_report['Team'].astype(str).str.upper() != 'PERUGIA'].copy()
+                r_o = [] # Inizializziamo r_o per evitare errori nel download button
+                if not df_o.empty:
+                    r_o = [["MATCH"] + calcola_stats(df_o)]
+                    for s in sorted(df_o['Set'].unique()): 
+                        r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
+                    st.dataframe(pd.DataFrame(r_o, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+
+                # --- DOWNLOAD REPORT ---
+                buffer_squadre = io.BytesIO()
+                with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
+                    df_p_multi = sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))
+                    df_p_multi.to_excel(writer, sheet_name='Perugia')
                     
-                    st.markdown("### 🏐 PERUGIA")
-                    df_p = df_report[df_report['Team'].astype(str).str.upper() == 'PERUGIA'].copy()
-                    r_p = [["MATCH"] + calcola_stats(df_p)]
-                    for s in sorted(df_p['Set'].unique()): r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
-                    st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
-
-                    st.markdown(f"### 🏐 {nome_avv}")
-                    df_o = df_report[df_report['Team'].astype(str).str.upper() != 'PERUGIA'].copy()
-                    if not df_o.empty:
-                        r_o = [["MATCH"] + calcola_stats(df_o)]
-                        for s in sorted(df_o['Set'].unique()): r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
-                        st.dataframe(pd.DataFrame(r_o, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
-
-                    # --- PRIMO BOTTONE AGGIORNATO ---
-                    buffer_squadre = io.BytesIO()
-                    with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
-                        # Applichiamo lo sdoppiamento prima di salvare
-                        df_p_multi = sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))
+                    if r_o: # Salviamo il foglio avversario solo se ci sono dati
                         df_o_multi = sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h))
-                        
-                        df_p_multi.to_excel(writer, sheet_name='Perugia')
                         df_o_multi.to_excel(writer, sheet_name=nome_avv[:30])
 
-                    st.download_button(
-                        label="📥 Scarica Report Squadre",
-                        data=buffer_squadre.getvalue(),
-                        file_name="Report_Generale_Squadre.xlsx",
-                        key="btn_squadre_multi"
-                    )
+                st.download_button(
+                    label="📥 Scarica Report Squadre",
+                    data=buffer_squadre.getvalue(),
+                    file_name="Report_Generale_Squadre.xlsx",
+                    key="btn_squadre_multi"
+                )
 
-                    st.divider()
+                st.divider()
 
                 # --- SEZIONE PLAYER PERUGIA ---
                 st.markdown("## 🏐 PERUGIA - PLAYER")
@@ -713,6 +722,7 @@ elif scelta == "Trend":
         else:
             st.warning("Seleziona almeno una partita per vedere i grafici.")
                     
+
 
 
 
