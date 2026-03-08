@@ -14,18 +14,24 @@ def get_github_client():
 
 # --- NUOVA FUNZIONE DI CARICAMENTO PUBBLICA ---
 
-@st.cache_data(ttl=600)  # Conserva i dati per 10 minuti, riducendo le chiamate a GitHub
 def load_from_github():
+    """Versione standard che usavi prima - Richiede il Token nei Secrets"""
     try:
-        # URL Raw del tuo file
-        url = "https://raw.githubusercontent.com/alore7/app-volley-stats/main/database.parquet"
+        from github import Auth, Github
+        import io
         
-        # Caricamento con timeout per evitare che l'app resti appesa
-        df = pd.read_parquet(url)
+        # Questa riga cerca il token che DEVE essere nei Secrets di Streamlit Cloud
+        auth = Auth.Token(st.secrets["github"]["token"])
+        g = Github(auth=auth)
+        
+        repo = g.get_repo(st.secrets["github"]["repository"])
+        path = st.secrets["github"]["file_path"]
+        
+        file_content = repo.get_contents(path)
+        df = pd.read_parquet(io.BytesIO(file_content.decoded_content))
         return df
     except Exception as e:
-        # Se GitHub risponde ancora 429, usiamo un messaggio meno invasivo
-        st.warning("⚠️ I server di GitHub sono sovraccarichi. L'app userà i dati dell'ultima sessione disponibile.")
+        st.error(f"⚠️ Errore: {e}")
         return None
         
 def save_to_github(df):
@@ -707,5 +713,6 @@ elif scelta == "Trend":
         else:
             st.warning("Seleziona almeno una partita per vedere i grafici.")
                     
+
 
 
