@@ -4,6 +4,190 @@ import plotly.express as px
 from github import Github, Auth
 import io
 import time
+import textwrap
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+def _safe_pdf_text(value):
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def build_trend_pdf(selected_matches, df_table_pdf, df_plot_pdf, modalita, etichetta_metriche):
+    buffer = io.BytesIO()
+
+    def _new_landscape_fig():
+        return plt.figure(figsize=(11.69, 8.27))
+
+    with PdfPages(buffer) as pdf:
+        # Pagina 1: partite selezionate + tabella
+        fig = _new_landscape_fig()
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis('off')
+
+        fig.text(0.03, 0.95, 'Trend Report Battuta', fontsize=18, fontweight='bold', ha='left', va='top')
+        fig.text(0.03, 0.915, etichetta_metriche, fontsize=10, ha='left', va='top')
+        fig.text(0.03, 0.89, f'Modalità: {modalita}', fontsize=10, ha='left', va='top')
+
+        def _match_label_pdf(m):
+            s = str(m)
+            if ' - vs ' in s:
+                s = s.split(' - vs ', 1)[1]
+            return s.upper()
+
+        match_items = [f"{i}. {_match_label_pdf(m)}" for i, m in enumerate(selected_matches, 1)]
+        if not match_items:
+            match_items = ['Nessuna partita selezionata']
+
+        # Vera disposizione orizzontale in 5 colonne tramite tabella
+        n_cols_matches = 5
+        rows_needed = max(1, (len(match_items) + n_cols_matches - 1) // n_cols_matches)
+        match_rows = []
+        for r in range(rows_needed):
+            row = []
+            for c in range(n_cols_matches):
+                idx = r * n_cols_matches + c
+                row.append(match_items[idx] if idx < len(match_items) else '')
+            match_rows.append(row)
+
+        matches_height = min(0.26, 0.04 + rows_needed * 0.028)
+        matches_bottom = 0.84 - matches_height
+        matches_ax = fig.add_axes([0.03, matches_bottom, 0.94, matches_height])
+        matches_ax.axis('off')
+        matches_tbl = matches_ax.table(
+            cellText=match_rows,
+            cellLoc='left',
+            colLoc='left',
+            loc='upper left',
+            bbox=[0, 0, 1, 1]
+        )
+        matches_tbl.auto_set_font_size(False)
+        matches_tbl.set_fontsize(9)
+        matches_tbl.scale(1, 1.2)
+        for (_, _), cell in matches_tbl.get_celld().items():
+            cell.set_linewidth(0)
+            cell.set_edgecolor('white')
+            cell.set_facecolor('white')
+            cell.PAD = 0.02
+            cell.get_text().set_fontfamily('monospace')
+            cell.get_text().set_ha('left')
+            cell.get_text().set_va('center')
+
+        # Nessun titolo intermedio: la prima pagina deve restare pulita
+        table_df = df_table_pdf.copy()
+        rename_map = {
+            'Giocatore': 'Gioc.',
+            'Data': 'Data',
+            'Avversario': 'Avv.',
+            'Battute Totali': 'Spin',
+            'Errori Totali': 'Err',
+            'Errori N': 'N',
+            'Errori F': 'F',
+            'Media Km/h': 'Km/h',
+            '% Errori': '% Err',
+            '% Errori N': '% N',
+            '% Errori F': '% F',
+        }
+        table_df = table_df.rename(columns=rename_map)
+
+        for col in table_df.columns:
+            if col in ['Km/h', '% Err', '% N', '% F']:
+                table_df[col] = table_df[col].map(lambda x: f"{float(x):.1f}" if pd.notna(x) and str(x) != '' else '')
+            else:
+                table_df[col] = table_df[col].fillna('').astype(str)
+
+        max_rows = 18
+        table_show = table_df.head(max_rows)
+        if len(table_df) > max_rows:
+            extra = pd.DataFrame([{c: '...' for c in table_show.columns}])
+            table_show = pd.concat([table_show, extra], ignore_index=True)
+
+        table_top = matches_bottom - 0.03
+        table_bottom = 0.07
+        table_height = max(0.36, table_top - table_bottom)
+        ax_tbl = fig.add_axes([0.03, table_bottom, 0.94, table_height])
+        ax_tbl.axis('off')
+        tbl = ax_tbl.table(
+            cellText=table_show.values,
+            colLabels=table_show.columns,
+            loc='upper left',
+            cellLoc='center',
+            bbox=[0, 0, 1, 1]
+        )
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(8)
+        tbl.scale(1, 1.25)
+        for (row, col), cell in tbl.get_celld().items():
+            cell.set_linewidth(0.4)
+            if row == 0:
+                cell.set_text_props(weight='bold')
+                cell.set_facecolor('#D9E2F3')
+            elif row % 2 == 0:
+                cell.set_facecolor('#F7F7F7')
+
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+
+        x = list(range(len(df_plot_pdf)))
+        labels = df_plot_pdf['Avv_Breve'].tolist()
+
+        # Pagina 2 - velocità
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        ax.plot(x, df_plot_pdf['Media Km/h'], marker='o', linewidth=2)
+        ax.plot(x, df_plot_pdf['Trend_Vel'], linestyle='--', linewidth=1.8)
+        for xi, yi in zip(x, df_plot_pdf['Media Km/h']):
+            ax.text(xi, yi + 0.35, f"{yi:.1f}", ha='center', va='bottom', fontsize=8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_title('Andamento Velocità Media nel Tempo')
+        ax.set_ylabel('Velocità Media (km/h)')
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+
+        # Pagina 3 - errori
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        bars = ax.bar(x, df_plot_pdf['% Errori'])
+        ax.plot(x, df_plot_pdf['Trend_Err'], linestyle='--', linewidth=1.8)
+        for rect, val in zip(bars, df_plot_pdf['% Errori']):
+            ax.text(rect.get_x() + rect.get_width()/2, rect.get_height() + 0.4, f"{val:.1f}%", ha='center', va='bottom', fontsize=8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_title('Andamento ERRORE')
+        ax.set_ylabel('% Errori')
+        ax.grid(axis='y', alpha=0.3)
+        fig.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+
+        # Pagina 4 - tipologie errore
+        fig, ax = plt.subplots(figsize=(11.69, 8.27))
+        width = 0.38
+        x_n = [i - width/2 for i in x]
+        x_f = [i + width/2 for i in x]
+        bars_n = ax.bar(x_n, df_plot_pdf['% Errori N'], width=width, label='N')
+        bars_f = ax.bar(x_f, df_plot_pdf['% Errori F'], width=width, label='F')
+        ax.plot(x, df_plot_pdf['Trend_Err_N'], linestyle='--', linewidth=1.6, label='Trend N')
+        ax.plot(x, df_plot_pdf['Trend_Err_F'], linestyle=':', linewidth=1.8, label='Trend F')
+        for rect, val in zip(bars_n, df_plot_pdf['% Errori N']):
+            if val > 0:
+                ax.text(rect.get_x() + rect.get_width()/2, rect.get_height() + 0.25, f"{val:.1f}%", ha='center', va='bottom', fontsize=7)
+        for rect, val in zip(bars_f, df_plot_pdf['% Errori F']):
+            if val > 0:
+                ax.text(rect.get_x() + rect.get_width()/2, rect.get_height() + 0.25, f"{val:.1f}%", ha='center', va='bottom', fontsize=7)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_title('Tipologie di ERRORE')
+        ax.set_ylabel('% Errori per tipologia')
+        ax.grid(axis='y', alpha=0.3)
+        ax.legend(loc='upper left', ncol=4, fontsize=8)
+        fig.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
 
 # --- FUNZIONI DI UTILITY PER GITHUB ---
 
@@ -209,7 +393,12 @@ st.set_page_config(page_title="Sir Susa Vim Perugia - Stats", layout="wide")
 st.sidebar.title("🏐 Menu Analisi")
 scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend Team/Player", "Storico Avversari"])
 
-df_master = load_master_from_github()
+# Usa prima i dati caricati nella sessione; solo in assenza totale ripiega su GitHub.
+if 'df_master' in st.session_state and isinstance(st.session_state['df_master'], pd.DataFrame):
+    df_master = st.session_state['df_master'].copy()
+else:
+    df_master = load_master_from_github()
+    st.session_state['df_master'] = df_master.copy()
 
 import warnings
 # Nasconde i messaggi di avviso di openpyxl e pandas
@@ -287,6 +476,7 @@ if scelta == "Caricamento Dati":
                             (df_master['Avv.'].astype(str) == str(row['Avv.']))
                         )]
                     
+                    st.session_state['df_master'] = df_master.copy()
                     save_to_github(df_master)
                     st.success("Database aggiornato con successo!")
                     st.rerun()
@@ -297,430 +487,654 @@ if scelta == "Caricamento Dati":
 
 elif scelta == "Match":
     st.title("🏟️ Report Match")
-    if not df_master.empty:
-        # 1. Selettori iniziali (rientro di 4 spazi)
+
+    if df_master.empty:
+        st.info("Carica prima i dati per visualizzare il Report Match.")
+    else:
         competizioni = sorted([str(x) for x in df_master['Partita'].dropna().unique() if str(x) != ''])
-        c_sel = st.selectbox("Competizione:", competizioni)
-        
-        df_c = df_master[df_master['Partita'].astype(str) == c_sel].copy()
-        df_c['Match_Label'] = df_c['Data'].astype(str) + " vs " + df_c['Avv.'].astype(str)
-        
-        match_list = sorted([str(x) for x in df_c['Match_Label'].dropna().unique() if str(x) != ''], reverse=True)
-        m_sel = st.multiselect("Seleziona Match:", match_list)
-        
-        if m_sel:
-            # 2. Scelta vista e preparazione dati (rientro di 8 spazi)
-            m_rep = st.radio("Vista:", ["REPORT", "GRAFICI"], horizontal=True)
-            df_report = df_c[df_c['Match_Label'].isin(m_sel)].copy()
-            df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
-            info = df_report.iloc[0]
-            nome_avv = str(info['Avv.']).upper()
-            cols_h = ["Fase", "Tot", "Spin", "Media Km/h", ">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
 
-            if m_rep == "REPORT":
-                # 3. Visualizzazione Report (rientro di 12 spazi)
-                st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                col1.success(f"**Manifestazione**\n\n{info['Partita']}")
-                col2.success(f"**Data**\n\n{info['Data']}")
-                col3.success(f"**Avversario**\n\n{nome_avv}")
-                
-                # --- TABELLA PERUGIA ---
-                st.markdown("### 🏐 PERUGIA")
-                df_p = df_report[df_report['Team'].astype(str).str.upper() == 'PERUGIA'].copy()
-                r_p = [["MATCH"] + calcola_stats(df_p)]
-                for s in sorted(df_p['Set'].unique()): 
-                    r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
-                
-                st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+        if not competizioni:
+            st.info("Nessuna competizione disponibile nel database.")
+        else:
+            c_sel = st.selectbox("Competizione:", competizioni)
 
-                # --- TABELLA AVVERSARIO ---
-                st.markdown(f"### 🏐 {nome_avv}")
-                df_o = df_report[df_report['Team'].astype(str).str.upper() != 'PERUGIA'].copy()
-                r_o = [] # Inizializziamo r_o per evitare errori nel download button
-                if not df_o.empty:
-                    r_o = [["MATCH"] + calcola_stats(df_o)]
-                    for s in sorted(df_o['Set'].unique()): 
-                        r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
-                    st.dataframe(pd.DataFrame(r_o, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+            df_c = df_master[df_master['Partita'].astype(str) == c_sel].copy()
+            df_c['Match_Label'] = df_c['Data'].astype(str) + " vs " + df_c['Avv.'].astype(str)
 
-                # --- DOWNLOAD REPORT ---
-                buffer_squadre = io.BytesIO()
-                with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
-                    df_p_multi = sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))
-                    df_p_multi.to_excel(writer, sheet_name='Perugia')
-                    
-                    if r_o: # Salviamo il foglio avversario solo se ci sono dati
-                        df_o_multi = sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h))
-                        df_o_multi.to_excel(writer, sheet_name=nome_avv[:30])
+            match_list = sorted([str(x) for x in df_c['Match_Label'].dropna().unique() if str(x) != ''], reverse=True)
+            m_sel = st.multiselect("Seleziona Match:", match_list)
 
-                st.download_button(
-                    label="📥 Scarica Report Squadre",
-                    data=buffer_squadre.getvalue(),
-                    file_name="Report_Generale_Squadre.xlsx",
-                    key="btn_squadre_multi"
-                )
+            if not m_sel:
+                st.info("Seleziona almeno una partita per aprire il Report Match.")
+            else:
+                m_rep = st.radio("Vista:", ["REPORT", "GRAFICI"], horizontal=True)
+                df_report = df_c[df_c['Match_Label'].isin(m_sel)].copy()
 
-                st.divider()
-
-                # --- SEZIONE PLAYER PERUGIA ---
-                st.markdown("## 🏐 PERUGIA - PLAYER")
-
-                # Estrazione lista giocatori Perugia
-                p_list = sorted([str(x) for x in df_p[df_p['Vel_Num'].notna() | df_p['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].unique()])
-
-                # Layout Selettori Perugia
-                col_fase_p, col_gioc_p = st.columns(2)
-                with col_fase_p:
-                    fs_p = st.selectbox("Fase Perugia (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_p['Set'].unique())], key="fs_p_new")
-                with col_gioc_p:
-                    ps_p = st.selectbox("Seleziona Giocatore (Tabella Individuale):", p_list, key="ps_p_new")
-
-                # 1. Tabella Generale Perugia
-                rg_p = []
-                for p in p_list:
-                    df_pf = df_p[df_p['Player'] == p] if fs_p == "MATCH" else df_p[(df_p['Player'] == p) & (df_p['Set'].astype(float) == float(fs_p.replace("Set ","")))]
-                    if not df_pf.empty: 
-                        rg_p.append([p] + calcola_stats(df_pf))
-
-                st.dataframe(
-                    pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:])
-                    .style.apply(stile_zebra, axis=None)
-                    .hide(axis="index")
-                    .format({"Media Km/h": "{:.1f}"}, precision=1), 
-                    use_container_width=True
-                )
-
-                # 2. Tabella Individuale Perugia
-                df_i_p = df_p[df_p['Player'] == ps_p]
-                ri_p = [["MATCH"] + calcola_stats(df_i_p)]
-                for s in sorted(df_i_p['Set'].unique()): 
-                    ri_p.append([f"Set {int(float(s))}"] + calcola_stats(df_i_p[df_i_p['Set'] == s]))
-
-                st.dataframe(
-                    pd.DataFrame(ri_p, columns=cols_h)
-                    .style.apply(stile_zebra, axis=None)
-                    .apply(stile_righe, axis=1)
-                    .hide(axis="index")
-                    .format({"Media Km/h": "{:.1f}"}, precision=1), 
-                    use_container_width=True
-                )
-
-                st.divider()
-
-                # --- SEZIONE PLAYER AVVERSARIO ---
-                st.markdown(f"## 🏐 {nome_avv} - PLAYER")
-
-                # Estrazione lista giocatori Avversario
-                a_list = sorted([str(x) for x in df_o[df_o['Vel_Num'].notna() | df_o['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].unique()])
-
-                # Layout Selettori Avversario
-                col_fase_a, col_gioc_a = st.columns(2)
-                with col_fase_a:
-                    fs_a = st.selectbox(f"Fase {nome_avv} (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_o['Set'].unique())], key="fs_a_new")
-                with col_gioc_a:
-                    ps_a = st.selectbox(f"Seleziona Giocatore {nome_avv} (Tabella Individuale):", a_list, key="ps_a_new")
-
-                # 1. Tabella Generale Avversario
-                rg_a = []
-                for a in a_list:
-                    df_af = df_o[df_o['Player'] == a] if fs_a == "MATCH" else df_o[(df_o['Player'] == a) & (df_o['Set'].astype(float) == float(fs_a.replace("Set ","")))]
-                    if not df_af.empty: 
-                        rg_a.append([a] + calcola_stats(df_af))
-
-                st.dataframe(
-                    pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:])
-                    .style.apply(stile_zebra, axis=None)
-                    .hide(axis="index")
-                    .format({"Media Km/h": "{:.1f}"}, precision=1), 
-                    use_container_width=True
-                )
-
-                # 2. Tabella Individuale Avversario
-                df_i_a = df_o[df_o['Player'] == ps_a]
-                ri_a = [["MATCH"] + calcola_stats(df_i_a)]
-                for s in sorted(df_i_a['Set'].unique()): 
-                    ri_a.append([f"Set {int(float(s))}"] + calcola_stats(df_i_a[df_i_a['Set'] == s]))
-
-                st.dataframe(
-                    pd.DataFrame(ri_a, columns=cols_h)
-                    .style.apply(stile_zebra, axis=None)
-                    .apply(stile_righe, axis=1)
-                    .hide(axis="index")
-                    .format({"Media Km/h": "{:.1f}"}, precision=1), 
-                    use_container_width=True
-                )
-
-                # --- SECONDO BOTTONE: REPORT PLAYER (CON COLONNE DOPPIE) ---
-                # Preparazione dati per il download - Perugia
-                df_p_raw = pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:])
-
-                # Preparazione dati per il download - Avversario (usiamo 'o' per evitare il NameError)
-                df_o_raw = pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:])
-
-                buffer_player = io.BytesIO()
-                with pd.ExcelWriter(buffer_player, engine='xlsxwriter') as writer:
-                    # Applichiamo lo sdoppiamento (se la struttura delle colonne è compatibile con cols_h)
-                    df_p_player_multi = sdoppia_percentuali(df_p_raw)
-                    df_o_player_multi = sdoppia_percentuali(df_o_raw)
-                    
-                    df_p_player_multi.to_excel(writer, sheet_name='Perugia_Player')
-                    df_o_player_multi.to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30])
-
-                st.download_button(
-                    label="📥 Scarica Report Player",
-                    data=buffer_player.getvalue(),
-                    file_name="Report_Player_Match.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_player_multi"
-                )
-
-            # --- SEZIONE FINALE: BtxBT PLAYER (Sequenza Cronologica) ---
-            st.divider()
-            st.subheader("📊 Sequenza Cronologica Battute (BtxBT)")
-
-            if not df_report.empty:
-                # 1. Filtro Set
-                set_disponibili = sorted(df_report['Set'].unique())
-                set_scelto = st.selectbox("Seleziona il Set:", set_disponibili, format_func=lambda x: f"Set {int(float(x))}")
-                df_set = df_report[df_report['Set'] == set_scelto].copy()
-
-                # 2. Logica di separazione Team
-                nomi_team = df_report['Team'].unique()
-                
-                # Definiamo Perugia
-                team_sir = next((t for t in nomi_team if any(key in str(t).upper() for key in ['SIR', 'PERUGIA'])), None)
-                
-                # Definiamo l'Avversario
-                team_avv = next((t for t in nomi_team if t != team_sir), None)
-
-                def genera_tabella_per_team(df_input, nome_team_target):
-                    if not nome_team_target: return pd.DataFrame()
-                    df_team = df_input[df_input['Team'] == nome_team_target]
-                    giocatori = sorted(df_team['Player'].unique())
-                    if not giocatori: return pd.DataFrame()
-
-                    data_rows = []
-                    max_battute = df_team.groupby('Player').size().max()
-                    for i in range(max_battute):
-                        row = {}
-                        for p in giocatori:
-                            p_battute = df_team[df_team['Player'] == p]
-                            if i < len(p_battute):
-                                b = p_battute.iloc[i]
-                                row[p] = f"{b['Tipo']} {b['Vel.']}"
-                            else:
-                                row[p] = ""
-                        data_rows.append(row)
-                    return pd.DataFrame(data_rows)
-
-                # Funzione per il colore giallo chiarissimo
-                def evidenzia_errori(val):
-                    v = str(val).upper()
-                    if ' N' in v or ' F' in v:
-                        return 'background-color: #ffffcc; font-weight: bold;'
-                    return ''
-
-                # 3. Visualizzazione Tabella PERUGIA
-                st.markdown("#### 🏐 PERUGIA")
-                df_p_bt = pd.DataFrame() # Inizializziamo per sicurezza
-                if team_sir:
-                    df_p_bt = genera_tabella_per_team(df_set, team_sir)
-                    if not df_p_bt.empty:
-                        st.dataframe(df_p_bt.style.applymap(evidenzia_errori), use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nessuna battuta per Perugia in questo set.")
-
-                # 4. Visualizzazione Tabella AVVERSARI
-                st.markdown(f"#### 🏐 {nome_avv}")
-                df_a_bt = pd.DataFrame() # Inizializziamo per sicurezza
-                if team_avv:
-                    df_a_bt = genera_tabella_per_team(df_set, team_avv)
-                    if not df_a_bt.empty:
-                        st.dataframe(df_a_bt.style.applymap(evidenzia_errori), use_container_width=True, hide_index=True)
-                    else:
-                        st.info(f"Nessuna battuta per l'avversario in questo set.")
-
-                # --- TERZO BOTTONE AGGIORNATO (BtxBT) ---
-                if not df_p_bt.empty or not df_a_bt.empty:
-                    buffer_bt = io.BytesIO()
-                    with pd.ExcelWriter(buffer_bt, engine='xlsxwriter') as writer:
-                        # Applichiamo lo sdoppiamento specifico per BtxBT
-                        df_p_bt_multi = sdoppia_btxbt(df_p_bt)
-                        df_a_bt_multi = sdoppia_btxbt(df_a_bt)
-                        
-                        df_p_bt_multi.to_excel(writer, sheet_name='Perugia')
-                        df_a_bt_multi.to_excel(writer, sheet_name='Avversario')
-                    
-                    st.download_button(
-                        label=f"📥 Scarica BtxBT Set {int(float(set_scelto))}",
-                        data=buffer_bt.getvalue(),
-                        file_name=f"BtxBT_Set_{set_scelto}.xlsx",
-                        key=f"btn_btxbt_multi_{set_scelto}"
-                    )
-
-            elif m_rep == "GRAFICI":
-                st.subheader("📊 Analisi Visiva della Battuta")
-                df_graf = df_report[df_report['Vel_Num'].notna()].copy()
-                if not df_graf.empty:
-                    st.markdown("##### 🏎️ Distribuzione Potenza")
-                    fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all",
-                                     color_discrete_map={'PERUGIA': '#C41E3A', info['Avv.']: '#0047AB'})
-                    st.plotly_chart(fig_box, width='stretch')
-
-                    st.markdown("##### 📈 Trend Velocità per Set")
-                    df_trend = df_graf.groupby(['Set', 'Team'])['Vel_Num'].mean().reset_index()
-                    fig_line = px.line(df_trend, x="Set", y="Vel_Num", color="Team", markers=True)
-                    st.plotly_chart(fig_line, width='stretch')
-
-                    st.markdown("##### 🏆 Top 8 Performance")
-                    df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
-                    df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
-                    fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
-                    st.plotly_chart(fig_bar, width='stretch')
+                if df_report.empty:
+                    st.warning("Nessun dato disponibile per le partite selezionate.")
                 else:
-                    st.warning("Dati di velocità non disponibili.")
+                    df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
+                    info = df_report.iloc[0]
+                    nome_avv = str(info['Avv.']).upper()
+                    cols_h = ["Fase", "Tot", "Spin", "Media Km/h", ">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
 
-# ... qui finisce tutto il blocco indentato di "Match" ...
+                    if m_rep == "REPORT":
+                        st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
+                        col1, col2, col3 = st.columns(3)
+                        col1.success(f"**Manifestazione**\n\n{info['Partita']}")
+                        col2.success(f"**Data**\n\n{info['Data']}")
+                        col3.success(f"**Avversario**\n\n{nome_avv}")
+
+                        st.markdown("### 🏐 PERUGIA")
+                        df_p = df_report[df_report['Team'].astype(str).str.upper() == 'PERUGIA'].copy()
+                        r_p = [["MATCH"] + calcola_stats(df_p)]
+                        for s in sorted(df_p['Set'].dropna().unique()):
+                            r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
+                        st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+
+                        st.markdown(f"### 🏐 {nome_avv}")
+                        df_o = df_report[df_report['Team'].astype(str).str.upper() != 'PERUGIA'].copy()
+                        r_o = []
+                        if not df_o.empty:
+                            r_o = [["MATCH"] + calcola_stats(df_o)]
+                            for s in sorted(df_o['Set'].dropna().unique()):
+                                r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
+                            st.dataframe(pd.DataFrame(r_o, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+                        else:
+                            st.info("Nessun dato disponibile per l'avversario.")
+
+                        buffer_squadre = io.BytesIO()
+                        with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
+                            df_p_multi = sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))
+                            df_p_multi.to_excel(writer, sheet_name='Perugia')
+                            if r_o:
+                                df_o_multi = sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h))
+                                df_o_multi.to_excel(writer, sheet_name=nome_avv[:30])
+
+                        st.download_button(
+                            label="📥 Scarica Report Squadre",
+                            data=buffer_squadre.getvalue(),
+                            file_name="Report_Generale_Squadre.xlsx",
+                            key="btn_squadre_multi"
+                        )
+
+                        st.divider()
+                        st.markdown("## 🏐 PERUGIA - PLAYER")
+                        p_list = sorted([str(x) for x in df_p[df_p['Vel_Num'].notna() | df_p['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].dropna().unique()])
+
+                        if p_list:
+                            col_fase_p, col_gioc_p = st.columns(2)
+                            with col_fase_p:
+                                fs_p = st.selectbox("Fase Perugia (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_p['Set'].dropna().unique())], key="fs_p_new")
+                            with col_gioc_p:
+                                ps_p = st.selectbox("Seleziona Giocatore (Tabella Individuale):", p_list, key="ps_p_new")
+
+                            rg_p = []
+                            for p_name in p_list:
+                                df_pf = df_p[df_p['Player'] == p_name] if fs_p == "MATCH" else df_p[(df_p['Player'] == p_name) & (df_p['Set'].astype(float) == float(fs_p.replace("Set ","")))]
+                                if not df_pf.empty:
+                                    rg_p.append([p_name] + calcola_stats(df_pf))
+
+                            st.dataframe(
+                                pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:]).style.apply(stile_zebra, axis=None).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
+                                use_container_width=True
+                            )
+
+                            df_i_p = df_p[df_p['Player'] == ps_p]
+                            ri_p = [["MATCH"] + calcola_stats(df_i_p)]
+                            for s in sorted(df_i_p['Set'].dropna().unique()):
+                                ri_p.append([f"Set {int(float(s))}"] + calcola_stats(df_i_p[df_i_p['Set'] == s]))
+
+                            st.dataframe(
+                                pd.DataFrame(ri_p, columns=cols_h).style.apply(stile_zebra, axis=None).apply(stile_righe, axis=1).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
+                                use_container_width=True
+                            )
+                        else:
+                            rg_p = []
+                            st.info("Nessun giocatore Perugia disponibile in questa selezione.")
+
+                        st.divider()
+                        st.markdown(f"## 🏐 {nome_avv} - PLAYER")
+                        a_list = sorted([str(x) for x in df_o[df_o['Vel_Num'].notna() | df_o['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].dropna().unique()])
+
+                        if a_list:
+                            col_fase_a, col_gioc_a = st.columns(2)
+                            with col_fase_a:
+                                fs_a = st.selectbox(f"Fase {nome_avv} (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_o['Set'].dropna().unique())], key="fs_a_new")
+                            with col_gioc_a:
+                                ps_a = st.selectbox(f"Seleziona Giocatore {nome_avv} (Tabella Individuale):", a_list, key="ps_a_new")
+
+                            rg_a = []
+                            for a_name in a_list:
+                                df_af = df_o[df_o['Player'] == a_name] if fs_a == "MATCH" else df_o[(df_o['Player'] == a_name) & (df_o['Set'].astype(float) == float(fs_a.replace("Set ","")))]
+                                if not df_af.empty:
+                                    rg_a.append([a_name] + calcola_stats(df_af))
+
+                            st.dataframe(
+                                pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:]).style.apply(stile_zebra, axis=None).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
+                                use_container_width=True
+                            )
+
+                            df_i_a = df_o[df_o['Player'] == ps_a]
+                            ri_a = [["MATCH"] + calcola_stats(df_i_a)]
+                            for s in sorted(df_i_a['Set'].dropna().unique()):
+                                ri_a.append([f"Set {int(float(s))}"] + calcola_stats(df_i_a[df_i_a['Set'] == s]))
+
+                            st.dataframe(
+                                pd.DataFrame(ri_a, columns=cols_h).style.apply(stile_zebra, axis=None).apply(stile_righe, axis=1).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
+                                use_container_width=True
+                            )
+                        else:
+                            rg_a = []
+                            st.info("Nessun giocatore avversario disponibile in questa selezione.")
+
+                        df_p_raw = pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:]) if rg_p else pd.DataFrame(columns=["Player"] + cols_h[1:])
+                        df_o_raw = pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:]) if rg_a else pd.DataFrame(columns=["Player"] + cols_h[1:])
+
+                        if not df_p_raw.empty or not df_o_raw.empty:
+                            buffer_player = io.BytesIO()
+                            with pd.ExcelWriter(buffer_player, engine='xlsxwriter') as writer:
+                                sdoppia_percentuali(df_p_raw).to_excel(writer, sheet_name='Perugia_Player')
+                                if not df_o_raw.empty:
+                                    sdoppia_percentuali(df_o_raw).to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30])
+                            st.download_button(
+                                label="📥 Scarica Report Player",
+                                data=buffer_player.getvalue(),
+                                file_name="Report_Player_Match.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="btn_player_multi"
+                            )
+
+                        st.divider()
+                        st.subheader("📊 Sequenza Cronologica Battute (BtxBT)")
+
+                        set_disponibili = sorted(df_report['Set'].dropna().unique())
+                        if set_disponibili:
+                            set_scelto = st.selectbox("Seleziona il Set:", set_disponibili, format_func=lambda x: f"Set {int(float(x))}")
+                            df_set = df_report[df_report['Set'] == set_scelto].copy()
+
+                            nomi_team = df_report['Team'].dropna().unique()
+                            team_sir = next((t for t in nomi_team if any(key in str(t).upper() for key in ['SIR', 'PERUGIA'])), None)
+                            team_avv = next((t for t in nomi_team if t != team_sir), None)
+
+                            def genera_tabella_per_team(df_input, nome_team_target):
+                                if not nome_team_target:
+                                    return pd.DataFrame()
+                                df_team = df_input[df_input['Team'] == nome_team_target]
+                                giocatori = sorted(df_team['Player'].dropna().unique())
+                                if not giocatori:
+                                    return pd.DataFrame()
+                                data_rows = []
+                                max_battute = df_team.groupby('Player').size().max()
+                                for i in range(max_battute):
+                                    row = {}
+                                    for p_name in giocatori:
+                                        p_battute = df_team[df_team['Player'] == p_name]
+                                        if i < len(p_battute):
+                                            b = p_battute.iloc[i]
+                                            row[p_name] = f"{b['Tipo']} {b['Vel.']}"
+                                        else:
+                                            row[p_name] = ""
+                                    data_rows.append(row)
+                                return pd.DataFrame(data_rows)
+
+                            def evidenzia_errori(val):
+                                v = str(val).upper()
+                                if ' N' in v or ' F' in v:
+                                    return 'background-color: #ffffcc; font-weight: bold;'
+                                return ''
+
+                            st.markdown("#### 🏐 PERUGIA")
+                            df_p_bt = genera_tabella_per_team(df_set, team_sir)
+                            if not df_p_bt.empty:
+                                st.dataframe(df_p_bt.style.applymap(evidenzia_errori), use_container_width=True, hide_index=True)
+                            else:
+                                st.info("Nessuna battuta per Perugia in questo set.")
+
+                            st.markdown(f"#### 🏐 {nome_avv}")
+                            df_a_bt = genera_tabella_per_team(df_set, team_avv)
+                            if not df_a_bt.empty:
+                                st.dataframe(df_a_bt.style.applymap(evidenzia_errori), use_container_width=True, hide_index=True)
+                            else:
+                                st.info("Nessuna battuta per l'avversario in questo set.")
+
+                            if not df_p_bt.empty or not df_a_bt.empty:
+                                buffer_bt = io.BytesIO()
+                                with pd.ExcelWriter(buffer_bt, engine='xlsxwriter') as writer:
+                                    sdoppia_btxbt(df_p_bt).to_excel(writer, sheet_name='Perugia')
+                                    if not df_a_bt.empty:
+                                        sdoppia_btxbt(df_a_bt).to_excel(writer, sheet_name='Avversario')
+                                st.download_button(
+                                    label=f"📥 Scarica BtxBT Set {int(float(set_scelto))}",
+                                    data=buffer_bt.getvalue(),
+                                    file_name=f"BtxBT_Set_{set_scelto}.xlsx",
+                                    key=f"btn_btxbt_multi_{set_scelto}"
+                                )
+                    else:
+                        st.subheader("📊 Analisi Visiva della Battuta")
+                        df_graf = df_report[df_report['Vel_Num'].notna()].copy()
+                        if not df_graf.empty:
+                            st.markdown("##### 🏎️ Distribuzione Potenza")
+                            fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all",
+                                             color_discrete_map={'PERUGIA': '#C41E3A', info['Avv.']: '#0047AB'})
+                            st.plotly_chart(fig_box, use_container_width=True)
+
+                            st.markdown("##### 📈 Trend Velocità per Set")
+                            df_trend = df_graf.groupby(['Set', 'Team'])['Vel_Num'].mean().reset_index()
+                            fig_line = px.line(df_trend, x="Set", y="Vel_Num", color="Team", markers=True)
+                            st.plotly_chart(fig_line, use_container_width=True)
+
+                            st.markdown("##### 🏆 Top 8 Performance")
+                            df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
+                            df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
+                            fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
+                            st.plotly_chart(fig_bar, use_container_width=True)
+                        else:
+                            st.warning("Dati di velocità non disponibili.")
 
 elif scelta == "Trend Team/Player":
-    st.markdown("<h2 style='text-align: center;'>📈 TREND STORICO PARTITE</h2>", unsafe_allow_html=True)
-    
-    # Verifichiamo se il database master è carico
-    if 'df_master' in st.session_state and not st.session_state['df_master'].empty:
+
+    st.markdown(
+        "<h2 style='text-align: center;'>📈 TREND STORICO PARTITE</h2>",
+        unsafe_allow_html=True
+    )
+
+    # =========================================================
+    # 1. CONTROLLO DATABASE
+    # =========================================================
+    if 'df_master' not in st.session_state or st.session_state['df_master'].empty:
+        st.warning("⚠️ Carica prima il database master per visualizzare il Trend.")
+    else:
         df_trend_base = st.session_state['df_master'].copy()
-        
-        # --- AGGIUNGI QUESTE RIGHE PER RISOLVERE IL FILTRO ---
-        # Forza la colonna Data ad essere un formato data pulito (senza ore/minuti)
-        df_trend_base['Data'] = pd.to_datetime(df_trend_base['Data'], format='mixed').dt.date
-        # ----------------------------------------------------
 
-        # Ora crea la lista dei match per il multiselect
-        opzioni_match = sorted(df_trend_base['Data'].unique(), reverse=True)
-        
-        selected_matches = st.multiselect(
-            "Scegli le partite:", 
-            options=opzioni_match,
-            default=opzioni_match # Inizia mostrandole tutte
-        )
+        colonne_necessarie = ['Data', 'Avv.', 'Team', 'Player', 'Vel.']
+        colonne_mancanti = [c for c in colonne_necessarie if c not in df_trend_base.columns]
 
-        # Filtra il database in base alla selezione
-        df_filtrato = df_trend_base[df_trend_base['Data'].isin(selected_matches)]
-
-        if not df_filtrato.empty:
-            # QUI METTI IL CODICE DEI TUOI GRAFICI (px.line, px.bar, ecc.)
-            st.success(f"Analisi di {len(df_filtrato)} record")
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database master: {colonne_mancanti}")
         else:
-            st.warning("Nessun dato disponibile per i match selezionati.")
-        
-        # --- 1. SELEZIONE PARTITE ---
-        # Creiamo una lista di opzioni combinando Data e Avversario per chiarezza
-        df_trend_base['Match_Label'] = df_trend_base['Data'].astype(str) + " - vs " + df_trend_base['Avv.']
-        lista_match = sorted(df_trend_base['Match_Label'].unique())
-                
-        # Filtriamo il dataframe usando il nome del PRIMO selettore (quello dei tag rossi)
-        if not selected_matches:
-            df_trend_filtered = df_trend_base.copy()
-        else:
-            # Qui usiamo 'Data' perché è la colonna che hai pulito sopra
-            df_trend_filtered = df_trend_base[df_trend_base['Data'].isin(selected_matches)].copy()
-
-        # --- 2. ELABORAZIONE DATI PERUGIA ---
-        # Filtriamo solo i dati di Perugia dai match selezionati
-        df_p_trend = df_trend_filtered[df_trend_filtered['Team'] == 'PERUGIA'].copy()
-        
-        trend_data = []
-        # Cicliamo sulle etichette dei match per mantenere l'ordine cronologico
-        for m_label in lista_match:
-            df_m = df_p_trend[df_p_trend['Match_Label'] == m_label]
-            
-            if not df_m.empty:
-                # Convertiamo Vel in numerico per il calcolo
-                df_m['Vel_Num'] = pd.to_numeric(df_m['Vel.'], errors='coerce')
-                media_vel = df_m['Vel_Num'].mean()
-                
-                # Calcolo % Errori
-                battute_tot = len(df_m)
-                err_tot = len(df_m[df_m['Tipo'].str.upper().isin(['E','N','O'])])
-                perc_err = (err_tot / battute_tot * 100) if battute_tot > 0 else 0
-                
-                trend_data.append({
-                    "Gara": m_label,
-                    "Media Km/h": round(media_vel, 1),
-                    "% Errori": round(perc_err, 1)
-                })
-        
-        df_plot = pd.DataFrame(trend_data)
-
-        # --- 3. GRAFICI ---
-        if not df_plot.empty:
-            # Grafico Potenza
-            st.subheader("🚀 Evoluzione Potenza Media")
-            fig_vel = px.line(df_plot, x="Gara", y="Media Km/h", markers=True, text="Media Km/h",
-                              color_discrete_sequence=["#C00000"])
-            fig_vel.update_traces(textposition="top center")
-            st.plotly_chart(fig_vel, use_container_width=True)
-
-            # Grafico Fallosità
-            st.subheader("📉 Analisi della Precisione (% Errori)")
-            fig_err = px.bar(df_plot, x="Gara", y="% Errori", text="% Errori",
-                             color_discrete_sequence=["#FFA500"])
-            fig_err.update_traces(texttemplate='%{text}%', textposition='outside')
-            st.plotly_chart(fig_err, use_container_width=True)
-            
-            # Tabella di riepilogo
-            st.write("### 📋 Dati Comparativi")
-            st.dataframe(df_plot, use_container_width=True, hide_index=True)
-        if not df_filtrato.empty:
-            st.success(f"Analisi di {len(df_filtrato)} record") # Quello che vedi ora
-
-            # --- AGGIUNGIAMO UN GRAFICO DI ESEMPIO ---
-            st.subheader("📈 Andamento Velocità Media")
-            
-            # Raggruppiamo i dati per data per calcolare la media
-        # --- INIZIO CORREZIONE SICURA ---
-        if not df_filtrato.empty:
-            # Identifichiamo automaticamente la colonna della velocità
-            # Cerchiamo tra i nomi possibili: 'Vel', 'Vel.', 'Velocità'
-            colonne_possibili = ['Vel', 'Vel.', 'Velocità']
-            colonna_vel = next((c for c in colonne_possibili if c in df_filtrato.columns), None)
-
-            if colonna_vel:
-                st.subheader("📈 Andamento Velocità Media")
-                
-                # Convertiamo in numero la colonna trovata
-                df_filtrato['Vel_Num'] = pd.to_numeric(df_filtrato[colonna_vel], errors='coerce')
-                
-                # Calcoliamo la media raggruppata per Data
-                df_media = df_filtrato.groupby('Data')['Vel_Num'].mean().reset_index()
-                
-                # Creiamo il grafico usando il nome corretto della colonna calcolata
-                fig = px.line(
-                    df_media, 
-                    x='Data', 
-                    y='Vel_Num',  # <--- Deve essere Vel_Num, non Velocità
-                    title="Evoluzione Velocità Media nel Tempo",
-                    labels={'Vel_Num': 'Velocità Media (km/h)', 'Data': 'Partita'},
-                    markers=True
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.error(f"❌ Colonna velocità non trovata. Colonne disponibili: {list(df_filtrato.columns)}")
-        # --- FINE CORREZIONE ---
-            
-            fig = px.line(
-                df_media, 
-                x='Data', 
-                y='Velocità', 
-                title="Evoluzione Velocità Media nel Tempo",
-                markers=True
+            # =========================================================
+            # 2. PULIZIA DATI
+            # =========================================================
+            df_trend_base['Data_raw'] = df_trend_base['Data'].astype(str).str.strip()
+            df_trend_base['Data'] = pd.to_datetime(
+                df_trend_base['Data_raw'],
+                errors='coerce',
+                dayfirst=True
             )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # --- FINE GRAFICO ---
 
-        else:
-            st.warning("Seleziona almeno una partita per vedere i grafici.")
+            mask_nat = df_trend_base['Data'].isna()
+            if mask_nat.any():
+                df_trend_base.loc[mask_nat, 'Data'] = pd.to_datetime(
+                    df_trend_base.loc[mask_nat, 'Data_raw'],
+                    errors='coerce',
+                    format='mixed'
+                )
+
+            df_trend_base = df_trend_base.dropna(subset=['Data']).copy()
+
+            if df_trend_base.empty:
+                st.warning("⚠️ Nessuna data valida trovata nel database master.")
+            else:
+                df_trend_base['Data_Solo'] = df_trend_base['Data'].dt.date
+                df_trend_base['Avv.'] = df_trend_base['Avv.'].astype(str).str.strip()
+                df_trend_base['Team'] = df_trend_base['Team'].astype(str).str.strip()
+                df_trend_base['Player'] = df_trend_base['Player'].astype(str).str.strip()
+                df_trend_base['Player_Key'] = (
+                    df_trend_base['Player']
+                    .astype(str)
+                    .str.strip()
+                    .str.replace(r'\s+', ' ', regex=True)
+                    .str.upper()
+                )
+                df_trend_base['Player_Display'] = (
+                    df_trend_base['Player_Key']
+                    .str.lower()
+                    .str.title()
+                )
+                df_trend_base['Vel_Str'] = df_trend_base['Vel.'].astype(str).str.upper().str.strip()
+                df_trend_base['Vel_Num'] = df_trend_base['Vel.'].apply(clean_vel_val)
+
+                # Battute SPIN: quelle con velocità numerica oppure con codice errore N/F nel campo velocità
+                df_trend_base['Is_Spin'] = df_trend_base['Vel_Num'].notna() | df_trend_base['Vel_Str'].isin(['N', 'F'])
+                df_trend_base['Is_Error'] = df_trend_base['Vel_Str'].isin(['N', 'F'])
+
+                df_trend_base['Match_Label'] = (
+                    df_trend_base['Data_Solo'].astype(str) + " - vs " + df_trend_base['Avv.']
+                )
+
+                match_info = (
+                    df_trend_base[['Data', 'Match_Label']]
+                    .drop_duplicates()
+                    .sort_values('Data', ascending=False)
+                )
+                lista_match = match_info['Match_Label'].tolist()
+
+                # =========================================================
+                # 3. SCELTA MODALITÀ E FILTRI
+                # =========================================================
+                modalita = st.radio(
+                    "Modalità analisi:",
+                    options=["PERUGIA", "INDIVIDUALE"],
+                    horizontal=True
+                )
+
+                giocatore_scelto = None
+                giocatore_key = None
+                if modalita == "INDIVIDUALE":
+                    df_giocatori_perugia = df_trend_base[
+                        df_trend_base['Team'].str.upper().str.contains('PERUGIA', na=False)
+                    ][['Player_Key', 'Player_Display']].copy()
+                    df_giocatori_perugia = (
+                        df_giocatori_perugia
+                        .replace('', pd.NA)
+                        .dropna(subset=['Player_Key'])
+                        .drop_duplicates(subset=['Player_Key'])
+                        .sort_values('Player_Display')
+                    )
+
+                    lista_giocatori = df_giocatori_perugia['Player_Display'].tolist()
+                    mappa_giocatori = dict(zip(df_giocatori_perugia['Player_Display'], df_giocatori_perugia['Player_Key']))
+
+                    if not lista_giocatori:
+                        st.warning("⚠️ Non risultano giocatori di Perugia nel database master.")
+                        st.stop()
+
+                    giocatore_scelto = st.selectbox(
+                        "Scegli il giocatore di Perugia:",
+                        options=lista_giocatori,
+                        index=0
+                    )
+                    giocatore_key = mappa_giocatori.get(giocatore_scelto)
+
+                selected_matches = st.multiselect(
+                    "Scegli le partite:",
+                    options=lista_match,
+                    default=lista_match
+                )
+
+                if not selected_matches:
+                    st.warning("Seleziona almeno una partita per vedere i grafici.")
+                else:
+                    df_trend_filtered = df_trend_base[
+                        df_trend_base['Match_Label'].isin(selected_matches)
+                    ].copy()
+
+                    if df_trend_filtered.empty:
+                        st.warning("Nessun dato disponibile per i match selezionati.")
+                    else:
+                        df_p_trend = df_trend_filtered[
+                            df_trend_filtered['Team'].str.upper().str.contains('PERUGIA', na=False)
+                        ].copy()
+
+                        if df_p_trend.empty:
+                            st.warning("⚠️ Nei match selezionati non ci sono dati per PERUGIA.")
+                        else:
+                            if modalita == "INDIVIDUALE":
+                                df_target = df_p_trend[df_p_trend['Player_Key'] == giocatore_key].copy()
+                                etichetta_metriche = f"Giocatore: {giocatore_scelto}"
+                            else:
+                                df_target = df_p_trend.copy()
+                                etichetta_metriche = "Squadra: PERUGIA"
+
+                            if df_target.empty:
+                                st.warning("⚠️ Nessun dato disponibile per il filtro selezionato.")
+                            else:
+                                # =========================================================
+                                # 4. COSTRUZIONE DATAFRAME TREND
+                                # =========================================================
+                                trend_data = []
+
+                                for m_label in selected_matches:
+                                    df_m = df_target[df_target['Match_Label'] == m_label].copy()
+
+                                    if not df_m.empty:
+                                        df_spin = df_m[df_m['Is_Spin']].copy()
+                                        battute_tot = len(df_spin)
+                                        media_vel = df_spin['Vel_Num'].mean() if battute_tot > 0 else None
+                                        err_tot = int(df_spin['Is_Error'].sum()) if battute_tot > 0 else 0
+                                        err_n = int((df_spin['Vel_Str'] == 'N').sum()) if battute_tot > 0 else 0
+                                        err_f = int((df_spin['Vel_Str'] == 'F').sum()) if battute_tot > 0 else 0
+                                        perc_err = (err_tot / battute_tot * 100) if battute_tot > 0 else 0
+                                        perc_err_n = (err_n / battute_tot * 100) if battute_tot > 0 else 0
+                                        perc_err_f = (err_f / battute_tot * 100) if battute_tot > 0 else 0
+
+                                        data_match = df_m['Data_Solo'].iloc[0]
+                                        avv_match = df_m['Avv.'].iloc[0]
+
+                                        trend_data.append({
+                                            "Data": data_match,
+                                            "Gara": m_label,
+                                            "Avversario": avv_match,
+                                            "Avv_Breve": str(avv_match).strip()[:3].upper(),
+                                            "Battute Totali": battute_tot,
+                                            "Errori Totali": err_tot,
+                                            "Errori N": err_n,
+                                            "Errori F": err_f,
+                                            "Media Km/h": round(media_vel, 1) if pd.notna(media_vel) else 0,
+                                            "% Errori": round(perc_err, 1),
+                                            "% Errori N": round(perc_err_n, 1),
+                                            "% Errori F": round(perc_err_f, 1)
+                                        })
+
+                                df_plot = pd.DataFrame(trend_data)
+
+                                if df_plot.empty:
+                                    st.warning("Nessun dato utile da mostrare per i match selezionati.")
+                                else:
+                                    df_plot = df_plot.sort_values('Data').reset_index(drop=True)
+                                    df_plot['X_Pos'] = list(range(1, len(df_plot) + 1))
+
+                                    def linea_trend(valori_x, valori_y):
+                                        if len(valori_y) >= 2:
+                                            x_mean = sum(valori_x) / len(valori_x)
+                                            y_mean = sum(valori_y) / len(valori_y)
+                                            den = sum((x - x_mean) ** 2 for x in valori_x)
+                                            if den != 0:
+                                                m = sum((x - x_mean) * (y - y_mean) for x, y in zip(valori_x, valori_y)) / den
+                                                b = y_mean - m * x_mean
+                                                return [m * x + b for x in valori_x]
+                                        media = sum(valori_y) / len(valori_y) if valori_y else 0
+                                        return [media] * len(valori_y)
+
+                                    x_vals = df_plot['X_Pos'].tolist()
+                                    df_plot['Trend_Vel'] = linea_trend(x_vals, df_plot['Media Km/h'].fillna(0).tolist())
+                                    df_plot['Trend_Err'] = linea_trend(x_vals, df_plot['% Errori'].fillna(0).tolist())
+                                    df_plot['Trend_Err_N'] = linea_trend(x_vals, df_plot['% Errori N'].fillna(0).tolist())
+                                    df_plot['Trend_Err_F'] = linea_trend(x_vals, df_plot['% Errori F'].fillna(0).tolist())
+
+                                    # =========================================================
+                                    # 5. METRICHE RIASSUNTIVE
+                                    # =========================================================
+                                    col1, col2, col3, col4 = st.columns(4)
+                                    col1.metric("Partite selezionate", len(df_plot))
+                                    col2.metric("Velocità media complessiva", f"{df_plot['Media Km/h'].mean():.1f} km/h")
+                                    col3.metric("Errori medi", f"{df_plot['% Errori'].mean():.1f}%")
+                                    col4.metric("Analisi", etichetta_metriche)
+
+                                    st.divider()
+
+                                    tickvals = df_plot['X_Pos'].tolist()
+                                    ticktext = df_plot['Avv_Breve'].tolist()
+                                    custom_hover = df_plot[['Avversario', 'Data', 'Battute Totali', 'Errori Totali']].astype(str).values
+
+                                    # =========================================================
+                                    # 6. GRAFICO VELOCITÀ MEDIA NEL TEMPO
+                                    # =========================================================
+                                    st.subheader("📈 Andamento Velocità Media nel Tempo")
+
+                                    df_plot['Vel_Label'] = df_plot['Media Km/h'].map(lambda v: f"{v:.1f}")
+
+                                    fig_and = px.line(
+                                        df_plot,
+                                        x='X_Pos',
+                                        y='Media Km/h',
+                                        text='Vel_Label',
+                                        markers=True,
+                                        color_discrete_sequence=['#C00000']
+                                    )
+                                    fig_and.update_traces(
+                                        textposition="top center",
+                                        texttemplate='%{text}',
+                                        line=dict(width=3),
+                                        marker=dict(size=9),
+                                        hovertemplate="<b>%{customdata[0]}</b><br>Data: %{customdata[1]}<br>Spin totali: %{customdata[2]}<br>Velocità media: %{y:.1f} km/h<extra></extra>",
+                                        customdata=custom_hover
+                                    )
+                                    fig_and.add_scatter(
+                                        x=df_plot['X_Pos'],
+                                        y=df_plot['Trend_Vel'],
+                                        mode='lines',
+                                        name='Trend',
+                                        line=dict(color='#666666', width=2, dash='dash'),
+                                        hovertemplate='Linea di tendenza<extra></extra>'
+                                    )
+                                    fig_and.update_layout(
+                                        xaxis_title="",
+                                        yaxis_title="Velocità Media (km/h)",
+                                        legend_title_text='',
+                                        height=450,
+                                        xaxis=dict(
+                                            tickmode='array',
+                                            tickvals=tickvals,
+                                            ticktext=ticktext
+                                        )
+                                    )
+                                    st.plotly_chart(fig_and, use_container_width=True)
+
+                                    # =========================================================
+                                    # 7. GRAFICO ERRORI
+                                    # =========================================================
+                                    st.subheader("📉 Andamento ERRORE")
+
+                                    fig_err = px.bar(
+                                        df_plot,
+                                        x="X_Pos",
+                                        y="% Errori",
+                                        text="% Errori",
+                                        color_discrete_sequence=["#FFA500"]
+                                    )
+                                    fig_err.update_traces(
+                                        texttemplate='%{text}%',
+                                        textposition='outside',
+                                        hovertemplate="<b>%{customdata[0]}</b><br>Data: %{customdata[1]}<br>Spin totali: %{customdata[2]}<br>Errori totali: %{customdata[3]}<br>% Errori: %{y:.1f}%<extra></extra>",
+                                        customdata=custom_hover
+                                    )
+                                    fig_err.add_scatter(
+                                        x=df_plot['X_Pos'],
+                                        y=df_plot['Trend_Err'],
+                                        mode='lines',
+                                        name='Trend',
+                                        line=dict(color='#666666', width=2, dash='dash'),
+                                        hovertemplate='Linea di tendenza<extra></extra>'
+                                    )
+                                    fig_err.update_layout(
+                                        xaxis_title="",
+                                        yaxis_title="% Errori",
+                                        xaxis=dict(
+                                            tickmode='array',
+                                            tickvals=tickvals,
+                                            ticktext=ticktext,
+                                            tickangle=0
+                                        ),
+                                        legend_title_text='',
+                                        height=450
+                                    )
+                                    st.plotly_chart(fig_err, use_container_width=True)
+
+                                    # =========================================================
+                                    # 8. GRAFICO TIPOLOGIE DI ERRORE
+                                    # =========================================================
+                                    st.subheader("🔎 Tipologie di ERRORE")
+
+                                    df_err_type = df_plot[['X_Pos', 'Avv_Breve', 'Avversario', 'Data', 'Battute Totali', 'Errori N', 'Errori F', '% Errori N', '% Errori F', 'Trend_Err_N', 'Trend_Err_F']].copy()
+                                    df_err_long = df_err_type.melt(
+                                        id_vars=['X_Pos', 'Avv_Breve', 'Avversario', 'Data', 'Battute Totali', 'Errori N', 'Errori F', 'Trend_Err_N', 'Trend_Err_F'],
+                                        value_vars=['% Errori N', '% Errori F'],
+                                        var_name='Tipo Errore',
+                                        value_name='Percentuale'
+                                    )
+                                    df_err_long['Tipo Errore'] = df_err_long['Tipo Errore'].replace({
+                                        '% Errori N': 'N',
+                                        '% Errori F': 'F'
+                                    })
+                                    df_err_long['Trend'] = df_err_long.apply(
+                                        lambda r: r['Trend_Err_N'] if r['Tipo Errore'] == 'N' else r['Trend_Err_F'],
+                                        axis=1
+                                    )
+                                    df_err_long['Errori Tipo'] = df_err_long.apply(
+                                        lambda r: r['Errori N'] if r['Tipo Errore'] == 'N' else r['Errori F'],
+                                        axis=1
+                                    )
+                                    df_err_long['Label'] = df_err_long['Percentuale'].map(lambda v: f"{v:.1f}%" if v > 0 else "")
+
+                                    fig_err_type = px.bar(
+                                        df_err_long,
+                                        x='X_Pos',
+                                        y='Percentuale',
+                                        color='Tipo Errore',
+                                        barmode='group',
+                                        text='Label',
+                                        color_discrete_map={'N': '#D62728', 'F': '#1F77B4'},
+                                        category_orders={'Tipo Errore': ['N', 'F']}
+                                    )
+                                    fig_err_type.update_traces(
+                                        textposition='outside',
+                                        hovertemplate="<b>%{customdata[0]}</b><br>Data: %{customdata[1]}<br>Spin totali: %{customdata[2]}<br>Tipo errore: %{customdata[3]}<br>Errori tipo: %{customdata[4]}<br>% Tipo errore: %{y:.1f}%<extra></extra>",
+                                        customdata=df_err_long[['Avversario', 'Data', 'Battute Totali', 'Tipo Errore', 'Errori Tipo']].astype(str).values
+                                    )
+                                    for tipo, nome_trend, colore in [('N', 'Trend N', '#8B0000'), ('F', 'Trend F', '#0B4F8A')]:
+                                        df_tipo = df_err_long[df_err_long['Tipo Errore'] == tipo].sort_values('X_Pos')
+                                        fig_err_type.add_scatter(
+                                            x=df_tipo['X_Pos'],
+                                            y=df_tipo['Trend'],
+                                            mode='lines',
+                                            name=nome_trend,
+                                            line=dict(color=colore, width=2, dash='dash'),
+                                            hovertemplate=f'Linea di tendenza {tipo}<extra></extra>'
+                                        )
+                                    fig_err_type.update_layout(
+                                        xaxis_title='',
+                                        yaxis_title='% Errori per tipologia',
+                                        xaxis=dict(
+                                            tickmode='array',
+                                            tickvals=tickvals,
+                                            ticktext=ticktext,
+                                            tickangle=0
+                                        ),
+                                        legend_title_text='',
+                                        height=500
+                                    )
+                                    st.plotly_chart(fig_err_type, use_container_width=True)
+
+                                    # =========================================================
+                                    # 9. TABELLA FINALE
+                                    # =========================================================
+                                    st.write("### 📋 Dati Comparativi")
+                                    colonne_tabella = ['Data', 'Avversario', 'Battute Totali', 'Errori Totali', 'Errori N', 'Errori F', 'Media Km/h', '% Errori', '% Errori N', '% Errori F']
+                                    if modalita == "INDIVIDUALE":
+                                        df_plot['Giocatore'] = giocatore_scelto
+                                        colonne_tabella = ['Giocatore'] + colonne_tabella
+                                    st.dataframe(
+                                        df_plot[colonne_tabella],
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+
+
+                                    pdf_bytes = build_trend_pdf(
+                                        selected_matches=selected_matches,
+                                        df_table_pdf=df_plot[colonne_tabella].copy(),
+                                        df_plot_pdf=df_plot.copy(),
+                                        modalita=modalita,
+                                        etichetta_metriche=etichetta_metriche
+                                    )
+                                    st.download_button(
+                                        label="📄 Scarica PDF Trend",
+                                        data=pdf_bytes,
+                                        file_name="trend_report_battuta.pdf",
+                                        mime="application/pdf"
+                                    )
 
 elif scelta == "Storico Avversari":
     st.markdown("<h2 style='text-align: center;'>📚 STORICO AVVERSARI</h2>", unsafe_allow_html=True)
