@@ -207,7 +207,7 @@ def save_to_github(df):
 # --- 4. INTERFACCIA STREAMLIT ---
 st.set_page_config(page_title="Sir Susa Vim Perugia - Stats", layout="wide")
 st.sidebar.title("🏐 Menu Analisi")
-scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend", "Velocità Team/Player", "Trend Errori", "Avversari"])
+scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend Team/Player", "Storico Avversari"])
 
 df_master = load_master_from_github()
 
@@ -583,7 +583,7 @@ elif scelta == "Match":
 
 # ... qui finisce tutto il blocco indentato di "Match" ...
 
-elif scelta == "Trend":
+elif scelta == "Trend Team/Player":
     st.markdown("<h2 style='text-align: center;'>📈 TREND STORICO PARTITE</h2>", unsafe_allow_html=True)
     
     # Verifichiamo se il database master è carico
@@ -721,9 +721,239 @@ elif scelta == "Trend":
 
         else:
             st.warning("Seleziona almeno una partita per vedere i grafici.")
-                    
 
+elif scelta == "Storico Avversari":
+    st.markdown("<h2 style='text-align: center;'>📚 STORICO AVVERSARI</h2>", unsafe_allow_html=True)
 
+    df_base = st.session_state['df_master'].copy() if ('df_master' in st.session_state and not st.session_state['df_master'].empty) else df_master.copy()
 
+    if df_base.empty:
+        st.warning("⚠️ Carica prima il database per visualizzare lo Storico Avversari.")
+    else:
+        df_base = df_base.copy()
 
+        # colonne minime richieste
+        colonne_minime = ['Data', 'Avv.', 'Team', 'Tipo', 'Vel.']
+        colonne_mancanti = [c for c in colonne_minime if c not in df_base.columns]
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database: {colonne_mancanti}")
+        else:
+            # pulizia base (conversione date robusta)
+            df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
+            df_base['Data'] = pd.to_datetime(df_base['Data_raw'], errors='coerce', dayfirst=True)
+            mask_nat = df_base['Data'].isna()
+            if mask_nat.any():
+                df_base.loc[mask_nat, 'Data'] = pd.to_datetime(
+                    df_base.loc[mask_nat, 'Data_raw'],
+                    errors='coerce',
+                    format='mixed'
+                )
+            df_base = df_base.dropna(subset=['Data']).copy()
+            df_base['Data_Solo'] = df_base['Data'].dt.date
+            df_base['Avv.'] = df_base['Avv.'].astype(str).str.strip()
+            df_base['Team'] = df_base['Team'].astype(str).str.strip()
+            df_base['Tipo'] = df_base['Tipo'].astype(str).str.upper().str.strip()
+            df_base['Vel_Str'] = df_base['Vel.'].astype(str).str.strip().str.upper()
+            df_base['Vel_Num'] = pd.to_numeric(df_base['Vel.'], errors='coerce')
+
+            def _is_perugia(val):
+                return 'PERUGIA' in str(val).upper()
+
+            def _opponent_name(row):
+                team = str(row['Team']).strip()
+                avv = str(row['Avv.']).strip()
+                if _is_perugia(team) and not _is_perugia(avv):
+                    return avv
+                if _is_perugia(avv) and not _is_perugia(team):
+                    return team
+                if not _is_perugia(avv):
+                    return avv
+                return team
+
+            def _side_name(row):
+                return 'Perugia' if _is_perugia(row['Team']) else 'Avversario'
+
+            df_base['Opponent'] = df_base.apply(_opponent_name, axis=1).astype(str).str.strip()
+            df_base['Side'] = df_base.apply(_side_name, axis=1)
+            df_base['Match_Label'] = df_base['Data_Solo'].astype(str) + ' - vs ' + df_base['Opponent']
+
+            match_info = (
+                df_base[['Data', 'Match_Label']]
+                .drop_duplicates()
+                .sort_values('Data', ascending=False)
+            )
+            lista_match = match_info['Match_Label'].tolist()
+
+            st.markdown("### ⚙️ Parametri")
+            selected_matches = st.multiselect(
+                "Seleziona le partite da analizzare:",
+                options=lista_match,
+                default=lista_match
+            )
+
+            if not selected_matches:
+                st.warning("Seleziona almeno una partita per vedere i grafici.")
+            else:
+                df_sel = df_base[df_base['Match_Label'].isin(selected_matches)].copy()
+
+                if df_sel.empty:
+                    st.warning("Nessun dato disponibile per le partite selezionate.")
+                else:
+                    # Ordine partite: manteniamo esattamente quello selezionato nel filtro
+                    ordine_match = selected_matches.copy()
+
+                    # Etichette corte ma univoche per singola partita
+                    def _short_match_label(lbl):
+                        try:
+                            data_txt, opp_txt = lbl.split(' - vs ', 1)
+                            opp_txt = str(opp_txt).strip().upper()
+                            data_txt = pd.to_datetime(data_txt, errors='coerce').strftime('%d-%m') if pd.notna(pd.to_datetime(data_txt, errors='coerce')) else data_txt
+                            return f"{opp_txt} | {data_txt}"
+                        except Exception:
+                            return str(lbl).upper()
+
+                    match_label_map = {lbl: _short_match_label(lbl) for lbl in ordine_match}
+                    ordine_match_short = [match_label_map[lbl] for lbl in ordine_match]
+                    df_sel['Match_Short'] = df_sel['Match_Label'].map(match_label_map)
+
+                    # 1) grafico confronto velocità medie: solo SPIN, per singola partita, barre orizzontali
+                    # Per coerenza con il resto dell'app, consideriamo SPIN solo le battute con velocità numerica valida
+                    df_vel = df_sel.copy()
+                    if 'clean_vel_val' in globals():
+                        df_vel['Vel_Num_Spin'] = df_vel['Vel.'].apply(clean_vel_val)
+                    else:
+                        df_vel['Vel_Num_Spin'] = pd.to_numeric(df_vel['Vel.'], errors='coerce')
+                    df_vel = df_vel[df_vel['Vel_Num_Spin'].notna()].copy()
+
+                    if not df_vel.empty:
+                        df_vel_plot = (
+                            df_vel.groupby(['Match_Label', 'Match_Short', 'Side'])['Vel_Num_Spin']
+                            .mean()
+                            .reset_index()
+                        )
+                        if not df_vel_plot.empty:
+                            df_vel_plot['Match_Short'] = pd.Categorical(
+                                df_vel_plot['Match_Short'],
+                                categories=list(reversed(ordine_match_short)),
+                                ordered=True
+                            )
+                            df_vel_plot = df_vel_plot.sort_values(['Match_Short', 'Side'])
+
+                            st.subheader("Confronto Velocità Medie SPIN: PERUGIA vs AVVERSARIO")
+                            fig_vel = px.bar(
+                                df_vel_plot,
+                                y='Match_Short',
+                                x='Vel_Num_Spin',
+                                color='Side',
+                                barmode='group',
+                                text='Vel_Num_Spin',
+                                orientation='h',
+                                category_orders={'Match_Short': list(reversed(ordine_match_short)), 'Side': ['Perugia', 'Avversario']},
+                                color_discrete_map={'Perugia': '#C00000', 'Avversario': '#1F77B4'},
+                                hover_data={'Match_Label': True, 'Match_Short': False, 'Vel_Num_Spin': ':.1f'}
+                            )
+                            fig_vel.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
+                            fig_vel.update_layout(
+                                xaxis_title='Velocità media SPIN (km/h)',
+                                yaxis_title='',
+                                legend_title='',
+                                height=max(500, 55 * len(ordine_match_short))
+                            )
+                            st.plotly_chart(fig_vel, use_container_width=True)
+                        else:
+                            st.info("Nessuna battuta SPIN con velocità numerica valida trovata per il confronto Perugia/Avversario.")
+                    else:
+                        st.info("Nessuna battuta SPIN con velocità numerica valida trovata per il confronto Perugia/Avversario.")
+
+                    # 2) grafico variazioni avversari (solo codice V), per singola partita, barre orizzontali
+                    mask_var = (df_sel['Side'] == 'Avversario') & (
+                        (df_sel['Tipo'] == 'V') | (df_sel['Vel_Str'] == 'V')
+                    )
+                    df_var = df_sel[mask_var].copy()
+
+                    if not df_var.empty:
+                        df_var_plot = (
+                            df_var.groupby(['Match_Label', 'Match_Short'])
+                            .size()
+                            .reset_index(name='Variazioni')
+                        )
+                        df_var_plot['Match_Short'] = pd.Categorical(
+                            df_var_plot['Match_Short'],
+                            categories=list(reversed(ordine_match_short)),
+                            ordered=True
+                        )
+                        df_var_plot = df_var_plot.sort_values('Match_Short')
+
+                        st.subheader("Variazioni Avversario (codice V)")
+                        fig_var = px.bar(
+                            df_var_plot,
+                            y='Match_Short',
+                            x='Variazioni',
+                            text='Variazioni',
+                            orientation='h',
+                            color_discrete_sequence=['#1F77B4'],
+                            hover_data={'Match_Label': True, 'Match_Short': False}
+                        )
+                        fig_var.update_traces(textposition='outside', cliponaxis=False)
+                        fig_var.update_layout(
+                            xaxis_title='Numero assoluto variazioni',
+                            yaxis_title='',
+                            showlegend=False,
+                            height=max(420, 50 * len(df_var_plot))
+                        )
+                        st.plotly_chart(fig_var, use_container_width=True)
+                    else:
+                        st.info("Nessuna variazione con codice V trovata per gli avversari contro Perugia.")
+
+                    # 3) filtro fasce velocità + grafico battute avversarie sopra soglia, per singola partita
+                    st.markdown("### 🎯 Fasce di velocità")
+                    soglia_label = st.selectbox(
+                        "Seleziona la fascia di velocità da analizzare:",
+                        options=[">= 110 km/h", ">= 115 km/h", ">= 120 km/h"],
+                        index=0,
+                        key="storico_avv_fascia_vel"
+                    )
+                    soglia = int(soglia_label.split()[1])
+
+                    df_band = df_sel[(df_sel['Side'] == 'Avversario') & (df_sel['Vel_Num_Spin'].notna() if 'Vel_Num_Spin' in df_sel.columns else df_sel['Vel_Num'].notna())].copy()
+                    if 'Vel_Num_Spin' not in df_band.columns:
+                        if 'clean_vel_val' in globals():
+                            df_band['Vel_Num_Spin'] = df_band['Vel.'].apply(clean_vel_val)
+                        else:
+                            df_band['Vel_Num_Spin'] = pd.to_numeric(df_band['Vel.'], errors='coerce')
+                    df_band = df_band[df_band['Vel_Num_Spin'] >= soglia].copy()
+
+                    if not df_band.empty:
+                        df_band_plot = (
+                            df_band.groupby(['Match_Label', 'Match_Short'])
+                            .size()
+                            .reset_index(name='Battute_Fascia')
+                        )
+                        df_band_plot['Match_Short'] = pd.Categorical(
+                            df_band_plot['Match_Short'],
+                            categories=list(reversed(ordine_match_short)),
+                            ordered=True
+                        )
+                        df_band_plot = df_band_plot.sort_values('Match_Short')
+
+                        st.subheader(f"Battute Avversario nella fascia {soglia_label}")
+                        fig_band = px.bar(
+                            df_band_plot,
+                            y='Match_Short',
+                            x='Battute_Fascia',
+                            text='Battute_Fascia',
+                            orientation='h',
+                            color_discrete_sequence=['#1F77B4'],
+                            hover_data={'Match_Label': True, 'Match_Short': False}
+                        )
+                        fig_band.update_traces(textposition='outside', cliponaxis=False)
+                        fig_band.update_layout(
+                            xaxis_title='Numero assoluto battute',
+                            yaxis_title='',
+                            showlegend=False,
+                            height=max(420, 50 * len(df_band_plot))
+                        )
+                        st.plotly_chart(fig_band, use_container_width=True)
+                    else:
+                        st.info(f"Nessuna battuta avversaria trovata nella fascia {soglia_label}.")
 
