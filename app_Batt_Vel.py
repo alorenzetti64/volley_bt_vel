@@ -559,7 +559,7 @@ elif scelta == "Match":
                         st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
 
                         st.markdown(f"### 🏐 {nome_avv}")
-                       df_o = df_report[df_report['Team'].astype(str).str.strip().str.upper() != 'PERUGIA'].copy()
+                        df_o = df_report[df_report['Team'].astype(str).str.strip().str.upper() != 'PERUGIA'].copy()
                         r_o = []
                         if not df_o.empty:
                             r_o = [["MATCH"] + calcola_stats(df_o)]
