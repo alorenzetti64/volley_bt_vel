@@ -318,12 +318,14 @@ def clean_vel_val(val):
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    # Considero solo le battute SPIN
+    # Normalizzazione colonne
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
+
+    # Considero solo le battute SPIN
     df = df[df['TipoU'] == 'SPIN'].copy()
 
-    # TOT = tutte le battute SPIN
+    # TOT SPIN = tutte le battute spin, comprese V / N / F
     tot = len(df)
 
     def normalize_code(s):
@@ -338,7 +340,7 @@ def calcola_stats(df_in):
 
     df['Code'] = df['VelS'].apply(normalize_code)
 
-    # SPIN valide = solo quelle che NON iniziano con V / N / F
+    # SPIN VALIDE = solo quelle numeriche pure
     def clean_spin_numeric(val):
         s = str(val).strip().upper()
         if s in ['', 'NAN', 'NONE']:
@@ -352,6 +354,7 @@ def calcola_stats(df_in):
 
     df['Vel_Num'] = df['Vel.'].apply(clean_spin_numeric)
     df_spin_valide = df[df['Vel_Num'].notna()].copy()
+
     n_spin = len(df_spin_valide)
     media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
 
@@ -552,14 +555,14 @@ elif scelta == "Match":
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
                         st.markdown("### 🏐 PERUGIA")
-                        df_p = df_report[df_report['Team'].astype(str).str.strip().str.upper() == 'PERUGIA'].copy()
+                        df_p = df_report[df_report['Team'].astype(str).str.upper().str.strip() == 'PERUGIA'].copy()
                         r_p = [["MATCH"] + calcola_stats(df_p)]
                         for s in sorted(df_p['Set'].dropna().unique()):
                             r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
                         st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
 
                         st.markdown(f"### 🏐 {nome_avv}")
-                        df_o = df_report[df_report['Team'].astype(str).str.strip().str.upper() != 'PERUGIA'].copy()
+                        df_o = df_report[df_report['Team'].astype(str).str.upper().str.strip() != 'PERUGIA'].copy()
                         r_o = []
                         if not df_o.empty:
                             r_o = [["MATCH"] + calcola_stats(df_o)]
