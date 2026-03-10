@@ -552,14 +552,14 @@ elif scelta == "Match":
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
                         st.markdown("### 🏐 PERUGIA")
-                        df_p = df_report[df_report['Team'].astype(str).str.upper() == 'PERUGIA'].copy()
+                        df_p = df_report[df_report['Team'].astype(str).str.strip().str.upper() == 'PERUGIA'].copy()
                         r_p = [["MATCH"] + calcola_stats(df_p)]
                         for s in sorted(df_p['Set'].dropna().unique()):
                             r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
                         st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
 
                         st.markdown(f"### 🏐 {nome_avv}")
-                        df_o = df_report[df_report['Team'].astype(str).str.upper() != 'PERUGIA'].copy()
+                       df_o = df_report[df_report['Team'].astype(str).str.strip().str.upper() != 'PERUGIA'].copy()
                         r_o = []
                         if not df_o.empty:
                             r_o = [["MATCH"] + calcola_stats(df_o)]
