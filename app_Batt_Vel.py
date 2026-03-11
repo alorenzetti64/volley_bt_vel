@@ -293,7 +293,6 @@ def load_from_github():
     try:
         from github import Auth, Github
         import io
-import unicodedata
         
         # Questa riga cerca il token che DEVE essere nei Secrets di Streamlit Cloud
         auth = Auth.Token(st.secrets["github"]["token"])
