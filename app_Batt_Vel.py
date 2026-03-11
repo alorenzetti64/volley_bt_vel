@@ -548,23 +548,38 @@ elif scelta == "Match":
                         col2.success(f"**Data**\n\n{info['Data']}")
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
-                        st.markdown("### 🏐 PERUGIA")
-                        df_o = df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
-                        r_p = [["MATCH"] + calcola_stats(df_p)]
-                        for s in sorted(df_p['Set'].dropna().unique()):
-                            r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
-                        st.dataframe(pd.DataFrame(r_p, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
+                            st.markdown(f"### 🏐 PERUGIA")
+                            df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
 
-                        st.markdown(f"### 🏐 {nome_avv}")
-                        df_o = df_report[df_report['Team'].astype(str).str.upper().str.strip() != 'PERUGIA'].copy()
-                        r_o = []
-                        if not df_o.empty:
-                            r_o = [["MATCH"] + calcola_stats(df_o)]
-                            for s in sorted(df_o['Set'].dropna().unique()):
-                                r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
-                            st.dataframe(pd.DataFrame(r_o, columns=cols_h).style.hide(axis="index").apply(stile_righe, axis=1).format({"Media Km/h": "{:.1f}"}, precision=1))
-                        else:
-                            st.info("Nessun dato disponibile per l'avversario.")
+                            r_p = [["MATCH"] + calcola_stats(df_p)]
+                            for s in sorted(df_p['Set'].dropna().unique()):
+                                r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
+
+                            st.dataframe(
+                                pd.DataFrame(r_p, columns=cols_h)
+                                .style.hide(axis='index')
+                                .apply(stile_righe, axis=1)
+                                .format({"Media Km/h": "{:.1f}"})
+                            )
+
+                    st.markdown(f"### 🏐 {nome_avv}")
+                    df_o = df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
+                    r_o = []
+
+                    if not df_o.empty:
+                        r_o = [["MATCH"] + calcola_stats(df_o)]
+                        for s in sorted(df_o['Set'].dropna().unique()):
+                            r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
+
+                        st.dataframe(
+                            pd.DataFrame(r_o, columns=cols_h)
+                            .style.hide(axis='index')
+                            .apply(stile_righe, axis=1)
+                            .format({"Media Km/h": "{:.1f}"})
+                        )
+                    else:
+                        st.info("Nessun dato disponibile per l'avversario.")
+
 
                         buffer_squadre = io.BytesIO()
                         with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
