@@ -319,47 +319,55 @@ def clean_vel_val(val):
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    st.write("DEBUG ROWS IN INGRESSO")
-    st.write(df[['Team', 'Set', 'Player', 'Tipo', 'Vel.']].to_string())
-
+    # Normalizzo colonne
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
-
-    st.write("DEBUG SOLO PERUGIA SPIN")
-    st.write(df[(df['Team'].astype(str).str.upper().str.strip() == 'PERUGIA') & (df['TipoU'] == 'SPIN')][['Set','Player','Tipo','Vel.','VelS']].to_string())
-
-    st.write("N righe totali ricevute:", len(df))
-    st.write("N righe SPIN:", len(df[df['TipoU'] == 'SPIN']))
-    st.write("N righe SPIN numeriche:", pd.to_numeric(df[df['TipoU'] == 'SPIN']['VelS'], errors='coerce').notna().sum())
 
     # Tengo solo le battute SPIN
     df_spin = df[df['TipoU'] == 'SPIN'].copy()
 
-    # TOT = tutte le SPIN
+    # TOT = tutte le SPIN, comprese quelle con V / N / F
     tot = len(df_spin)
 
-    # Valide = solo quelle numeriche
-    df_spin['Vel_Num'] = pd.to_numeric(df_spin['VelS'], errors='coerce')
-    df_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
-    n_spin = len(df_valide)
+    # Funzione per riconoscere i codici speciali
+    def is_special_code(s):
+        s = str(s).strip().upper()
+        return s.startswith('V') or s.startswith('N') or s.startswith('F')
 
-    media = df_valide['Vel_Num'].mean() if n_spin > 0 else 0
+    # SPIN valide = solo quelle numeriche
+    def clean_spin_numeric(val):
+        s = str(val).strip().upper()
+        if s in ['', 'NAN', 'NONE']:
+            return None
+        if is_special_code(s):
+            return None
+        try:
+            return float(s.replace(',', '.'))
+        except Exception:
+            return None
 
-    # Codici speciali sulle sole SPIN
-    n_var = (df_spin['VelS'].str.startswith('V')).sum()
-    n_net = (df_spin['VelS'].str.startswith('N')).sum()
-    n_out = (df_spin['VelS'].str.startswith('F')).sum()
+    df_spin['Vel_Num'] = df_spin['Vel.'].apply(clean_spin_numeric)
+
+    df_spin_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
+    n_spin = len(df_spin_valide)
+
+    media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
+
+    # Codici speciali sulle SPIN
+    n_var = df_spin['VelS'].apply(lambda x: str(x).startswith('V')).sum()
+    n_net = df_spin['VelS'].apply(lambda x: str(x).startswith('N')).sum()
+    n_out = df_spin['VelS'].apply(lambda x: str(x).startswith('F')).sum()
     n_err_tot = n_net + n_out
 
     def fmt_f(c, t):
         p = (c / t * 100) if t > 0 else 0
         return f"{c} ({p:.1f}%)"
 
-    f1 = fmt_f(len(df_valide[df_valide['Vel_Num'] > 120]), n_spin)
-    f2 = fmt_f(len(df_valide[(df_valide['Vel_Num'] >= 115) & (df_valide['Vel_Num'] <= 120)]), n_spin)
-    f3 = fmt_f(len(df_valide[(df_valide['Vel_Num'] >= 110) & (df_valide['Vel_Num'] < 115)]), n_spin)
-    f4 = fmt_f(len(df_valide[(df_valide['Vel_Num'] >= 100) & (df_valide['Vel_Num'] < 110)]), n_spin)
-    f5 = fmt_f(len(df_valide[df_valide['Vel_Num'] < 100]), n_spin)
+    f1 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] > 120]), n_spin)
+    f2 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 115) & (df_spin_valide['Vel_Num'] <= 120)]), n_spin)
+    f3 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 110) & (df_spin_valide['Vel_Num'] < 115)]), n_spin)
+    f4 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 100) & (df_spin_valide['Vel_Num'] < 110)]), n_spin)
+    f5 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] < 100]), n_spin)
 
     var_str = fmt_f(n_var, tot)
     err_str = fmt_f(n_err_tot, tot)
