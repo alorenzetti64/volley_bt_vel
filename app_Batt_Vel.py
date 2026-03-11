@@ -1610,16 +1610,19 @@ elif scelta == "Scheda Battitore":
                         hide_index=True
                     )
 
+                    max_kmh = float(df_g['Vel_Num'].max()) if df_g['Vel_Num'].notna().any() else 0.0
+                    player_index = media_vel * (pct_val / 100) * (1 - pct_err / 100)
+
                     player_metrics = {
                         'Spin Totali': int(spin_tot) if pd.notna(spin_tot) else '-',
-                        'Media Km/h': f"{media_kmh:.1f}" if pd.notna(media_kmh) else '-',
+                        'Media Km/h': f"{media_vel:.1f}" if pd.notna(media_vel) else '-',
                         'Max Km/h': f"{max_kmh:.1f}" if pd.notna(max_kmh) else '-',
-                        '% Valide': f"{perc_valide:.1f}" if pd.notna(perc_valide) else '-',
-                        '% Errori': f"{perc_errori:.1f}" if pd.notna(perc_errori) else '-',
+                        '% Valide': f"{pct_val:.1f}" if pd.notna(pct_val) else '-',
+                        '% Errori': f"{pct_err:.1f}" if pd.notna(pct_err) else '-',
                         'Serve Impact Index': f"{player_index:.1f}" if pd.notna(player_index) else '-',
                     }
                     pdf_player = build_player_sheet_pdf(
-                        player_sel,
+                        giocatore_scelto,
                         len(df_match),
                         player_metrics,
                         player_pdf_df
@@ -1627,9 +1630,9 @@ elif scelta == "Scheda Battitore":
                     st.download_button(
                         "📄 Scarica PDF Scheda Battitore",
                         data=pdf_player,
-                        file_name=f"scheda_battitore_{player_sel.lower().replace(' ', '_')}.pdf",
+                        file_name=f"scheda_battitore_{giocatore_scelto.lower().replace(' ', '_')}.pdf",
                         mime="application/pdf",
-                        key=f"pdf_scheda_battitore_{player_sel}"
+                        key=f"pdf_scheda_battitore_{giocatore_scelto}"
                     )
 
 elif scelta == "Confronto Partite":
