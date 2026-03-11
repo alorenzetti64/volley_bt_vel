@@ -437,6 +437,12 @@ if scelta == "Caricamento Dati":
             if uploaded:
                 df_new = pd.read_excel(uploaded, sheet_name="Foglio1").iloc[:, 0:8]
                 df_new.columns = COLUMNS_A_H
+                st.write("DEBUG IMPORT - colonne:", df_new.columns.tolist())
+                st.write("DEBUG IMPORT - righe totali:", len(df_new))
+                st.write("DEBUG IMPORT - Team x Tipo:")
+                st.write(df_new.groupby(['Team', 'Tipo']).size().reset_index(name='conteggio'))
+                st.write("DEBUG IMPORT - prime 30 righe:")
+                st.dataframe(df_new.head(30))
                 
                 # Filtro anti-NaT
                 df_new = df_new.dropna(subset=['Data', 'Player'], how='all')
