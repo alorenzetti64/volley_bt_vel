@@ -748,27 +748,28 @@ elif scelta == "Match":
                                     file_name=f"BtxBT_Set_{set_scelto}.xlsx",
                                     key=f"btn_btxbt_multi_{set_scelto}"
                                 )
-                    else:
-                        st.subheader("📊 Analisi Visiva della Battuta")
-                        df_graf = df_report[df_report['Vel_Num'].notna()].copy()
-                        if not df_graf.empty:
-                            st.markdown("##### 🏎️ Distribuzione Potenza")
-                            fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all",
-                                             color_discrete_map={'PERUGIA': '#C41E3A', info['Avv.']: '#0047AB'})
-                            st.plotly_chart(fig_box, use_container_width=True)
 
-                            st.markdown("##### 📈 Trend Velocità per Set")
-                            df_trend = df_graf.groupby(['Set', 'Team'])['Vel_Num'].mean().reset_index()
-                            fig_line = px.line(df_trend, x="Set", y="Vel_Num", color="Team", markers=True)
-                            st.plotly_chart(fig_line, use_container_width=True)
-
-                            st.markdown("##### 🏆 Top 8 Performance")
-                            df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
-                            df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
-                            fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
-                            st.plotly_chart(fig_bar, use_container_width=True)
                         else:
-                            st.warning("Dati di velocità non disponibili.")
+                            st.subheader("📊 Analisi Visiva della Battuta")
+                            df_graf = df_report[df_report['Vel_Num'].notna()].copy()
+                            if not df_graf.empty:
+                                st.markdown("##### 🏎️ Distribuzione Potenza")
+                                fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all",
+                                                    color_discrete_map={'PERUGIA': '#C41E3A', info['Avv.']: '#0047AB'})
+                                st.plotly_chart(fig_box, use_container_width=True)
+
+                                st.markdown("##### 📈 Trend Velocità per Set")
+                                df_trend = df_graf.groupby(['Set', 'Team'])['Vel_Num'].mean().reset_index()
+                                fig_line = px.line(df_trend, x="Set", y="Vel_Num", color="Team", markers=True)
+                                st.plotly_chart(fig_line, use_container_width=True)
+
+                                st.markdown("##### 🏆 Top 8 Performance")
+                                df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
+                                df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
+                                fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
+                                st.plotly_chart(fig_bar, use_container_width=True)
+                            else:
+                                st.warning("Dati di velocità non disponibili.")
 
 elif scelta == "Trend Team/Player":
 
