@@ -542,13 +542,26 @@ elif scelta == "Match":
                     cols_h = ["Fase", "Tot.SPIN", "Spin valide", "Media Km/h", ">=120", ">=115 <120", ">=110 <115", ">=100 <110", "<100", "[V] var.ni", "Errori [N]+[F]", "Rete [N]", "Fuori [NF]"]
 
                     if m_rep == "REPORT":
-                        st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
+                        st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPINK</h2>", unsafe_allow_html=True)
                         col1, col2, col3 = st.columns(3)
                         col1.success(f"**Manifestazione**\n\n{info['Partita']}")
                         col2.success(f"**Data**\n\n{info['Data']}")
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
-                    st.markdown(f"### 🏐 PERUGIA")
+                        st.write("Match selezionati:", m_sel)
+                        st.write("Righe df_report:", len(df_report))
+
+                        debug_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
+                        st.write("Righe PERUGIA:", len(debug_p))
+
+                        st.write(
+                            debug_p.groupby(['Set', 'Tipo'])['Vel.']
+                            .count()
+                            .reset_index()
+                            .sort_values(['Set', 'Tipo'])
+                        )
+
+                        st.markdown(f"### 🏐 PERUGIA")
                     df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
 
                     r_p = [["MATCH"] + calcola_stats(df_p)]
