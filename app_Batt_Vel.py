@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from github import Github, Auth
 import io
 import time
@@ -940,8 +941,55 @@ elif scelta == "Match":
 
                             st.markdown("##### 📈 Trend Velocità per Set")
                             df_trend = df_graf.groupby(['Set_Num', 'Team'])['Vel_Num'].mean().reset_index()
-                            fig_line = px.line(df_trend, x="Set_Num", y="Vel_Num", color="Team", markers=True)
-                            fig_line.update_layout(xaxis_title="Set", yaxis_title="Velocità media (km/h)")
+
+                            fig_line = go.Figure()
+                            for team_name in df_trend['Team'].dropna().unique():
+                                df_team = df_trend[df_trend['Team'] == team_name].sort_values('Set_Num')
+                                fig_line.add_trace(go.Scatter(
+                                    x=df_team['Set_Num'],
+                                    y=df_team['Vel_Num'],
+                                    mode='lines+markers+text',
+                                    name=team_name,
+                                    text=[f"{v:.1f}" for v in df_team['Vel_Num']],
+                                    textposition='top center'
+                                ))
+
+                            df_diff = (
+                                df_trend.pivot(index='Set_Num', columns='Team', values='Vel_Num')
+                                .dropna()
+                                .sort_index()
+                            )
+                            if df_diff.shape[1] >= 2:
+                                team_a = df_diff.columns[0]
+                                team_b = df_diff.columns[1]
+                                for set_num, row in df_diff.iterrows():
+                                    y1 = float(row[team_a])
+                                    y2 = float(row[team_b])
+                                    y_mid = (y1 + y2) / 2
+                                    diff = abs(y1 - y2)
+                                    fig_line.add_shape(
+                                        type='line',
+                                        x0=set_num,
+                                        x1=set_num,
+                                        y0=min(y1, y2),
+                                        y1=max(y1, y2),
+                                        line=dict(width=2, dash='dot', color='rgba(80,80,80,0.7)'),
+                                    )
+                                    fig_line.add_annotation(
+                                        x=set_num,
+                                        y=y_mid,
+                                        text=f"Δ {diff:.1f}",
+                                        showarrow=False,
+                                        xshift=18,
+                                        bgcolor='rgba(255,255,255,0.75)',
+                                        bordercolor='rgba(80,80,80,0.35)',
+                                        borderwidth=1
+                                    )
+
+                            fig_line.update_layout(
+                                xaxis_title="Set",
+                                yaxis_title="Velocità media (km/h)"
+                            )
                             st.plotly_chart(fig_line, use_container_width=True)
 
                             st.markdown("##### 🏆 Top 8 Performance")
