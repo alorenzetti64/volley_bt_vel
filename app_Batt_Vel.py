@@ -319,9 +319,18 @@ def clean_vel_val(val):
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    # Normalizzo colonne
+    st.write("DEBUG ROWS IN INGRESSO")
+    st.write(df[['Team', 'Set', 'Player', 'Tipo', 'Vel.']].to_string())
+
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
+
+    st.write("DEBUG SOLO PERUGIA SPIN")
+    st.write(df[(df['Team'].astype(str).str.upper().str.strip() == 'PERUGIA') & (df['TipoU'] == 'SPIN')][['Set','Player','Tipo','Vel.','VelS']].to_string())
+
+    st.write("N righe totali ricevute:", len(df))
+    st.write("N righe SPIN:", len(df[df['TipoU'] == 'SPIN']))
+    st.write("N righe SPIN numeriche:", pd.to_numeric(df[df['TipoU'] == 'SPIN']['VelS'], errors='coerce').notna().sum())
 
     # Tengo solo le battute SPIN
     df_spin = df[df['TipoU'] == 'SPIN'].copy()
