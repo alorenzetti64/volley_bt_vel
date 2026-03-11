@@ -103,15 +103,17 @@ def _safe_pdf_text(value):
 
 
 
-def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table_pdf):
-    """Crea un PDF semplice per la Scheda Battitore.
+
+def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table_pdf, df_chart_pdf=None):
+    """Crea un PDF per la Scheda Battitore con metriche, grafici e tabella.
     Restituisce bytes PDF oppure None se reportlab non è disponibile.
     """
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
         import tempfile
     except ModuleNotFoundError:
         return None
@@ -121,7 +123,7 @@ def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table
     styles = getSampleStyleSheet()
     story = []
 
-    story.append(Paragraph(f"Scheda Battitore - {player_name}", styles["Title"]))
+    story.append(Paragraph(f"Scheda Battitore - {_safe_pdf_text(player_name)}", styles["Title"]))
     story.append(Spacer(1, 10))
     story.append(Paragraph(f"Partite selezionate: {selected_matches}", styles["Normal"]))
     story.append(Spacer(1, 10))
@@ -130,7 +132,7 @@ def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table
     for k, v in metrics_dict.items():
         metric_rows.append([str(k), str(v)])
 
-    metric_table = Table(metric_rows, repeatRows=1)
+    metric_table = Table(metric_rows, repeatRows=1, colWidths=[180, 120])
     metric_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF7")),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
@@ -140,6 +142,53 @@ def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table
     ]))
     story.append(metric_table)
     story.append(Spacer(1, 14))
+
+    if df_chart_pdf is not None and not df_chart_pdf.empty:
+        def _make_chart_image(df_src, y_col, title, ylabel, kind="line"):
+            fig, ax = plt.subplots(figsize=(8.2, 3.0))
+            x = range(len(df_src))
+            labels = df_src["Etichetta"].astype(str).tolist()
+            y = pd.to_numeric(df_src[y_col], errors="coerce")
+
+            if kind == "bar":
+                ax.bar(x, y)
+                for xi, yi in zip(x, y):
+                    if pd.notna(yi):
+                        suffix = "%" if "%" in ylabel or "%" in y_col else ""
+                        ax.text(xi, yi + (max(y.fillna(0)) * 0.02 if len(y) else 0.2), f"{yi:.1f}{suffix}",
+                                ha="center", va="bottom", fontsize=8)
+            else:
+                ax.plot(x, y, marker="o")
+                for xi, yi in zip(x, y):
+                    if pd.notna(yi):
+                        ax.text(xi, yi, f"{yi:.1f}", ha="center", va="bottom", fontsize=8)
+
+            ax.set_title(title, fontsize=11)
+            ax.set_ylabel(ylabel)
+            ax.set_xticks(list(x))
+            ax.set_xticklabels(labels, rotation=35, ha="right", fontsize=8)
+            ax.grid(True, axis="y", alpha=0.3)
+            fig.tight_layout()
+
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+            plt.close(fig)
+            buf.seek(0)
+            return buf
+
+        story.append(Paragraph("Grafici", styles["Heading2"]))
+        story.append(Spacer(1, 6))
+
+        try:
+            img1 = _make_chart_image(df_chart_pdf, "Media Km/h", "Velocità media per partita", "Km/h", kind="line")
+            story.append(Image(img1, width=520, height=190))
+            story.append(Spacer(1, 10))
+
+            img2 = _make_chart_image(df_chart_pdf, "% Errori", "% errori per partita", "% Errori", kind="bar")
+            story.append(Image(img2, width=520, height=190))
+            story.append(Spacer(1, 14))
+        except Exception:
+            pass
 
     if df_table_pdf is not None and not df_table_pdf.empty:
         data = [list(df_table_pdf.columns)] + df_table_pdf.astype(str).values.tolist()
@@ -159,6 +208,7 @@ def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table
     doc.build(story)
     with open(tmp.name, "rb") as f:
         return f.read()
+
 
 
 def build_trend_pdf(selected_matches, df_table_pdf, df_plot_pdf, modalita, etichetta_metriche):
@@ -1626,11 +1676,15 @@ elif scelta == "Scheda Battitore":
                         '% Errori': f"{pct_err:.1f}" if pd.notna(pct_err) else '-',
                         'Serve Impact Index': f"{player_index:.1f}" if pd.notna(player_index) else '-',
                     }
+                    player_chart_df = uniforma_decimali(
+                        df_match[['Etichetta', 'Media Km/h', '% Errori']].copy()
+                    )
                     pdf_player = build_player_sheet_pdf(
                         giocatore_scelto,
                         len(df_match),
                         player_metrics,
-                        player_pdf_df
+                        player_pdf_df,
+                        player_chart_df
                     )
                     if pdf_player is None:
                         st.warning("Per scaricare il PDF serve il pacchetto `reportlab` nel file requirements.txt.")
