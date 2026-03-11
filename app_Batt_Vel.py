@@ -465,8 +465,13 @@ if scelta == "Caricamento Dati":
     tab1, tab2 = st.tabs(["Carica CSV / Excel", "Pulisci Database"])
     
     with tab1:
-        uploaded = st.file_uploader("Seleziona file .csv o .xlsm", type=["csv", "xlsm", "xlsx"])
+        uploaded = st.file_uploader("Seleziona file CSV / XLSM / XLSX")
+        st.caption("Formati supportati: .csv, .xlsm, .xlsx")
         if uploaded:
+            file_name_check = uploaded.name.lower()
+            if not file_name_check.endswith((".csv", ".xlsm", ".xlsx")):
+                st.error("Carica un file .csv, .xlsm oppure .xlsx")
+                st.stop()
             try:
                 df_new = load_uploaded_match_file(uploaded)
             except Exception as e:
