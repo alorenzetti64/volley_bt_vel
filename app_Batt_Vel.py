@@ -587,6 +587,13 @@ elif scelta == "Match":
                         st.write("Perugia - solo Spin:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'SPIN']))
                         st.write("Perugia - solo Float:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'FLOAT']))
 
+                        st.write("SPIN con Team diverso da Perugia:")
+                        tmp = df_report[df_report['Tipo'].astype(str).str.upper().str.strip() == 'SPIN'].copy()
+                        st.write(
+                            tmp[~tmp['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)]
+                            [['Set', 'Team', 'Player', 'Tipo', 'Vel.']]
+                        )
+
                         st.markdown(f"### 🏐 PERUGIA")
                     df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
 
