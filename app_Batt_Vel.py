@@ -573,6 +573,20 @@ elif scelta == "Match":
                         st.write("Righe che NON contengono PERUGIA nel Team:")
                         st.write(df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)][['Set', 'Team', 'Tipo', 'Vel.']])
 
+                        st.write("Conteggio Team x Tipo:")
+                        st.write(
+                            df_report.groupby(
+                                [df_report['Team'].astype(str).str.upper().str.strip(),
+                                df_report['Tipo'].astype(str).str.upper().str.strip()]
+                            ).size().reset_index(name='conteggio')
+                        )
+
+                        debug_p_all = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
+
+                        st.write("Perugia - tutte le righe:", len(debug_p_all))
+                        st.write("Perugia - solo Spin:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'SPIN']))
+                        st.write("Perugia - solo Float:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'FLOAT']))
+
                         st.markdown(f"### 🏐 PERUGIA")
                     df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
 
