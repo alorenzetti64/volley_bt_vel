@@ -104,12 +104,17 @@ def _safe_pdf_text(value):
 
 
 def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table_pdf):
-    """Crea un PDF semplice per la Scheda Battitore."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-    import tempfile
+    """Crea un PDF semplice per la Scheda Battitore.
+    Restituisce bytes PDF oppure None se reportlab non è disponibile.
+    """
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        import tempfile
+    except ModuleNotFoundError:
+        return None
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     doc = SimpleDocTemplate(tmp.name, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=32, bottomMargin=32)
@@ -1627,13 +1632,16 @@ elif scelta == "Scheda Battitore":
                         player_metrics,
                         player_pdf_df
                     )
-                    st.download_button(
-                        "📄 Scarica PDF Scheda Battitore",
-                        data=pdf_player,
-                        file_name=f"scheda_battitore_{giocatore_scelto.lower().replace(' ', '_')}.pdf",
-                        mime="application/pdf",
-                        key=f"pdf_scheda_battitore_{giocatore_scelto}"
-                    )
+                    if pdf_player is None:
+                        st.warning("Per scaricare il PDF serve il pacchetto `reportlab` nel file requirements.txt.")
+                    else:
+                        st.download_button(
+                            "📄 Scarica PDF Scheda Battitore",
+                            data=pdf_player,
+                            file_name=f"scheda_battitore_{giocatore_scelto.lower().replace(' ', '_')}.pdf",
+                            mime="application/pdf",
+                            key=f"pdf_scheda_battitore_{giocatore_scelto}"
+                        )
 
 elif scelta == "Confronto Partite":
     st.markdown("<h2 style='text-align: center;'>🆚 CONFRONTO PARTITE</h2>", unsafe_allow_html=True)
