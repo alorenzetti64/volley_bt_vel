@@ -426,46 +426,41 @@ if scelta == "Caricamento Dati":
             if uploaded:
                 df_raw = pd.read_excel(uploaded, sheet_name="Foglio1", engine="openpyxl")
 
-                # Prendo le prime 8 colonne utili
                 df_new = df_raw.iloc[:, 0:8].copy()
                 df_new.columns = COLUMNS_A_H
 
-                # Pulizia celle vuote / celle unite di Excel
+                # Riempie eventuali celle vuote dovute a merge nel file Excel
                 for col in ['Data', 'Partita', 'Avv.', 'Team', 'Set']:
-                    df_new[col] = df_new[col].replace('', pd.NA).ffill()
+                    df_new[col] = df_new[col].ffill()
 
-                # Normalizzazione testo
+                # Normalizzazione
                 df_new['Team'] = df_new['Team'].astype(str).str.upper().str.strip()
                 df_new['Tipo'] = df_new['Tipo'].astype(str).str.upper().str.strip()
                 df_new['Player'] = df_new['Player'].astype(str).str.strip()
                 df_new['Vel.'] = df_new['Vel.'].astype(str).str.strip()
 
-                # Elimina righe davvero vuote
-                df_new = df_new.dropna(how='all')
-                df_new = df_new[~(
-                    (df_new['Player'].astype(str).str.strip() == '') &
-                    (df_new['Tipo'].astype(str).str.strip() == '') &
-                    (df_new['Vel.'].astype(str).str.strip() == '')
-                )]
-
-                # Filtro anti-NaT
-                df_new = df_new.dropna(subset=['Data'], how='all')
+                # Togli righe inutili / sporche
+                df_new = df_new.dropna(subset=['Player'], how='all')
                 df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
+                df_new = df_new[df_new['Tipo'].isin(['SPIN', 'FLOAT'])]
 
-                # Debug utile
+                # ID progressivo: così due righe uguali restano due battute diverse
+                df_new['Ordine'] = range(1, len(df_new) + 1)
+
                 st.write("DEBUG IMPORT - Team x Tipo:")
                 st.write(df_new.groupby(['Team', 'Tipo']).size().reset_index(name='conteggio'))
-                st.dataframe(df_new.head(20))
 
                 if st.button("🚀 Sincronizza su GitHub"):
                     with st.spinner("Sincronizzazione in corso..."):
-                        df_combined = pd.concat([df_master, df_new]).drop_duplicates()
+                        df_combined = pd.concat([df_master, df_new], ignore_index=True)
+
                         # Pulizia finale
                         df_combined = df_combined.dropna(subset=['Data'], how='any')
                         df_combined = df_combined[df_combined['Data'].astype(str).str.upper() != 'NAT']
+
                         st.session_state['df_master'] = df_combined
-                        
                         save_to_github(df_combined)
+
                         st.success("Dati sincronizzati!")
                         
                     st.success("Dati sincronizzati!")
