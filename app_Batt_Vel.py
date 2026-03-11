@@ -466,7 +466,7 @@ def save_to_github(df):
 # --- 4. INTERFACCIA STREAMLIT ---
 st.set_page_config(page_title="Sir Susa Vim Perugia - Stats", layout="wide")
 st.sidebar.title("🏐 Menu Analisi")
-scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend Team/Player", "Storico Avversari"])
+scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Report Partita", "Trend Team/Player", "Scheda Battitore", "Confronto Partite", "Storico Avversari", "Ranking Battitori", "Insight"])
 
 # Usa prima i dati caricati nella sessione; solo in assenza totale ripiega su GitHub.
 if 'df_master' in st.session_state and isinstance(st.session_state['df_master'], pd.DataFrame):
@@ -634,7 +634,7 @@ if scelta == "Caricamento Dati":
         else:
             st.info("Il database è attualmente vuoto.")
 
-elif scelta == "Match":
+elif scelta == "Report Partita":
     st.title("🏟️ Report Match")
 
     if df_master.empty:
@@ -1395,6 +1395,345 @@ elif scelta == "Trend Team/Player":
                                         file_name="trend_report_battuta.pdf",
                                         mime="application/pdf"
                                     )
+
+
+
+elif scelta == "Scheda Battitore":
+    st.markdown("<h2 style='text-align: center;'>🎯 SCHEDA BATTITORE</h2>", unsafe_allow_html=True)
+
+    df_base = st.session_state['df_master'].copy() if ('df_master' in st.session_state and not st.session_state['df_master'].empty) else df_master.copy()
+
+    if df_base.empty:
+        st.warning("⚠️ Carica prima il database per visualizzare la Scheda Battitore.")
+    else:
+        colonne_minime = ['Data', 'Avv.', 'Team', 'Player', 'Vel.']
+        colonne_mancanti = [c for c in colonne_minime if c not in df_base.columns]
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database: {colonne_mancanti}")
+        else:
+            df_base = df_base.copy()
+            df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
+            df_base['Data'] = parse_match_dates(df_base['Data_raw'])
+            df_base = df_base.dropna(subset=['Data']).copy()
+            df_base['Data_Solo'] = df_base['Data'].dt.date
+            df_base['Avv.'] = df_base['Avv.'].astype(str).str.strip()
+            df_base['Team'] = df_base['Team'].astype(str).str.strip()
+            df_base['Player'] = df_base['Player'].astype(str).str.strip()
+            df_base['Vel_Str'] = df_base['Vel.'].astype(str).str.upper().str.strip()
+            df_base['Vel_Num'] = df_base['Vel.'].apply(clean_vel_val)
+            df_base['Is_Spin'] = df_base['Vel_Num'].notna() | df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Error'] = df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Valid'] = df_base['Vel_Num'].notna()
+            df_base['Match_Label'] = df_base['Data_Solo'].astype(str) + " - vs " + df_base['Avv.']
+
+            df_perugia = df_base[df_base['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
+            if df_perugia.empty:
+                st.warning("⚠️ Nel database non risultano dati associati a Perugia.")
+            else:
+                giocatori = sorted([g for g in df_perugia['Player'].dropna().unique().tolist() if str(g).strip()])
+                col_a, col_b = st.columns([1, 2])
+                with col_a:
+                    giocatore_scelto = st.selectbox("Giocatore:", options=giocatori)
+                with col_b:
+                    match_disponibili = (
+                        df_perugia[['Data', 'Match_Label']]
+                        .drop_duplicates()
+                        .sort_values('Data', ascending=False)['Match_Label']
+                        .tolist()
+                    )
+                    selected_matches = st.multiselect(
+                        "Partite da includere:",
+                        options=match_disponibili,
+                        default=match_disponibili
+                    )
+
+                df_g = df_perugia[(df_perugia['Player'] == giocatore_scelto) & (df_perugia['Match_Label'].isin(selected_matches))].copy()
+                df_g = df_g[df_g['Is_Spin']].copy()
+
+                if df_g.empty:
+                    st.info("Nessun dato disponibile per il giocatore e le partite selezionate.")
+                else:
+                    partite_n = df_g['Match_Label'].nunique()
+                    spin_tot = int(len(df_g))
+                    media_vel = float(df_g['Vel_Num'].mean()) if df_g['Vel_Num'].notna().any() else 0.0
+                    pct_err = float(df_g['Is_Error'].mean() * 100) if len(df_g) else 0.0
+                    pct_val = float(df_g['Is_Valid'].mean() * 100) if len(df_g) else 0.0
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Partite", partite_n)
+                    c2.metric("Spin Totali", spin_tot)
+                    c3.metric("Media Km/h", f"{media_vel:.1f}")
+                    c4.metric("% Errori", f"{pct_err:.1f}%")
+                    st.caption(f"% Valide: {pct_val:.1f}%")
+
+                    df_match = (
+                        df_g.groupby(['Match_Label', 'Data_Solo', 'Avv.'])
+                        .agg(
+                            **{
+                                'Spin Totali': ('Vel_Str', 'size'),
+                                'Media Km/h': ('Vel_Num', 'mean'),
+                                '% Errori': ('Is_Error', lambda x: x.mean() * 100),
+                                '% Valide': ('Is_Valid', lambda x: x.mean() * 100),
+                                'Max Km/h': ('Vel_Num', 'max')
+                            }
+                        )
+                        .reset_index()
+                        .sort_values('Data_Solo')
+                    )
+                    df_match['Etichetta'] = df_match['Avv.'].astype(str).str.upper() + ' | ' + pd.to_datetime(df_match['Data_Solo']).dt.strftime('%d-%m')
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        fig_vel = px.line(df_match, x='Etichetta', y='Media Km/h', markers=True, text='Media Km/h')
+                        fig_vel.update_traces(texttemplate='%{text:.1f}', textposition='top center')
+                        fig_vel.update_layout(title='Velocità media per partita', xaxis_title='', yaxis_title='Km/h')
+                        st.plotly_chart(fig_vel, use_container_width=True)
+                    with col2:
+                        fig_err = px.bar(df_match, x='Etichetta', y='% Errori', text='% Errori')
+                        fig_err.update_traces(texttemplate='%{text:.1f}%', textposition='outside', cliponaxis=False)
+                        fig_err.update_layout(title='% errori per partita', xaxis_title='', yaxis_title='% Errori')
+                        st.plotly_chart(fig_err, use_container_width=True)
+
+                    st.write('### 📋 Dettaglio per partita')
+                    st.dataframe(
+                        df_match[['Data_Solo', 'Avv.', 'Spin Totali', 'Media Km/h', 'Max Km/h', '% Valide', '% Errori']]
+                        .rename(columns={'Data_Solo': 'Data', 'Avv.': 'Avversario'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+elif scelta == "Confronto Partite":
+    st.markdown("<h2 style='text-align: center;'>🆚 CONFRONTO PARTITE</h2>", unsafe_allow_html=True)
+
+    df_base = st.session_state['df_master'].copy() if ('df_master' in st.session_state and not st.session_state['df_master'].empty) else df_master.copy()
+
+    if df_base.empty:
+        st.warning("⚠️ Carica prima il database per visualizzare il Confronto Partite.")
+    else:
+        colonne_minime = ['Data', 'Avv.', 'Team', 'Vel.']
+        colonne_mancanti = [c for c in colonne_minime if c not in df_base.columns]
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database: {colonne_mancanti}")
+        else:
+            df_base = df_base.copy()
+            df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
+            df_base['Data'] = parse_match_dates(df_base['Data_raw'])
+            df_base = df_base.dropna(subset=['Data']).copy()
+            df_base['Data_Solo'] = df_base['Data'].dt.date
+            df_base['Avv.'] = df_base['Avv.'].astype(str).str.strip()
+            df_base['Team'] = df_base['Team'].astype(str).str.strip()
+            df_base['Vel_Str'] = df_base['Vel.'].astype(str).str.upper().str.strip()
+            df_base['Vel_Num'] = df_base['Vel.'].apply(clean_vel_val)
+            df_base['Is_Spin'] = df_base['Vel_Num'].notna() | df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Error'] = df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Match_Label'] = df_base['Data_Solo'].astype(str) + " - vs " + df_base['Avv.']
+            df_base['Side'] = df_base['Team'].apply(lambda x: 'Perugia' if 'PERUGIA' in str(x).upper() else 'Avversario')
+
+            match_list = (
+                df_base[['Data', 'Match_Label']]
+                .drop_duplicates()
+                .sort_values('Data', ascending=False)['Match_Label']
+                .tolist()
+            )
+            default_matches = match_list[:5] if len(match_list) >= 5 else match_list
+            selected_matches = st.multiselect("Seleziona le partite:", options=match_list, default=default_matches)
+
+            if not selected_matches:
+                st.info("Seleziona almeno una partita.")
+            else:
+                df_sel = df_base[df_base['Match_Label'].isin(selected_matches) & df_base['Is_Spin']].copy()
+                if df_sel.empty:
+                    st.info("Nessun dato disponibile per le partite selezionate.")
+                else:
+                    df_cmp = (
+                        df_sel.groupby(['Match_Label', 'Data_Solo', 'Avv.', 'Side'])
+                        .agg(
+                            **{
+                                'Spin Totali': ('Vel_Str', 'size'),
+                                'Media Km/h': ('Vel_Num', 'mean'),
+                                '% Errori': ('Is_Error', lambda x: x.mean() * 100)
+                            }
+                        )
+                        .reset_index()
+                        .sort_values(['Data_Solo', 'Side'])
+                    )
+                    df_cmp['Etichetta'] = df_cmp['Avv.'].astype(str).str.upper() + ' | ' + pd.to_datetime(df_cmp['Data_Solo']).dt.strftime('%d-%m')
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric('Partite selezionate', len(selected_matches))
+                    c2.metric('Media Km/h Perugia', f"{df_cmp[df_cmp['Side']=='Perugia']['Media Km/h'].mean():.1f}" if not df_cmp[df_cmp['Side']=='Perugia'].empty else '0.0')
+                    c3.metric('Media % Errori Perugia', f"{df_cmp[df_cmp['Side']=='Perugia']['% Errori'].mean():.1f}%" if not df_cmp[df_cmp['Side']=='Perugia'].empty else '0.0%')
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        fig_vel = px.bar(df_cmp, x='Etichetta', y='Media Km/h', color='Side', barmode='group', text='Media Km/h')
+                        fig_vel.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
+                        fig_vel.update_layout(title='Velocità media confronto partite', xaxis_title='', yaxis_title='Km/h')
+                        st.plotly_chart(fig_vel, use_container_width=True)
+                    with col2:
+                        fig_err = px.bar(df_cmp, x='Etichetta', y='% Errori', color='Side', barmode='group', text='% Errori')
+                        fig_err.update_traces(texttemplate='%{text:.1f}%', textposition='outside', cliponaxis=False)
+                        fig_err.update_layout(title='% errori confronto partite', xaxis_title='', yaxis_title='% Errori')
+                        st.plotly_chart(fig_err, use_container_width=True)
+
+                    st.write('### 📋 Tabella comparativa')
+                    st.dataframe(
+                        df_cmp[['Data_Solo', 'Avv.', 'Side', 'Spin Totali', 'Media Km/h', '% Errori']].rename(
+                            columns={'Data_Solo': 'Data', 'Avv.': 'Avversario', 'Side': 'Squadra'}
+                        ),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+elif scelta == "Ranking Battitori":
+    st.markdown("<h2 style='text-align: center;'>🏅 RANKING BATTITORI</h2>", unsafe_allow_html=True)
+
+    df_base = st.session_state['df_master'].copy() if ('df_master' in st.session_state and not st.session_state['df_master'].empty) else df_master.copy()
+
+    if df_base.empty:
+        st.warning("⚠️ Carica prima il database per visualizzare il Ranking Battitori.")
+    else:
+        colonne_minime = ['Data', 'Team', 'Player', 'Vel.']
+        colonne_mancanti = [c for c in colonne_minime if c not in df_base.columns]
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database: {colonne_mancanti}")
+        else:
+            df_base = df_base.copy()
+            df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
+            df_base['Data'] = parse_match_dates(df_base['Data_raw'])
+            df_base = df_base.dropna(subset=['Data']).copy()
+            df_base['Team'] = df_base['Team'].astype(str).str.strip()
+            df_base['Player'] = df_base['Player'].astype(str).str.strip()
+            df_base['Vel_Str'] = df_base['Vel.'].astype(str).str.upper().str.strip()
+            df_base['Vel_Num'] = df_base['Vel.'].apply(clean_vel_val)
+            df_base['Is_Spin'] = df_base['Vel_Num'].notna() | df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Error'] = df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Valid'] = df_base['Vel_Num'].notna()
+            df_p = df_base[df_base['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False) & df_base['Is_Spin']].copy()
+
+            if df_p.empty:
+                st.info("Nessun dato utile per costruire il ranking.")
+            else:
+                min_spin = st.slider('Minimo spin per entrare nel ranking:', min_value=5, max_value=100, value=15, step=5)
+                df_rank = (
+                    df_p.groupby('Player')
+                    .agg(
+                        **{
+                            'Spin Totali': ('Vel_Str', 'size'),
+                            'Media Km/h': ('Vel_Num', 'mean'),
+                            '% Errori': ('Is_Error', lambda x: x.mean() * 100),
+                            '% Valide': ('Is_Valid', lambda x: x.mean() * 100),
+                            'Max Km/h': ('Vel_Num', 'max')
+                        }
+                    )
+                    .reset_index()
+                )
+                df_rank = df_rank[df_rank['Spin Totali'] >= min_spin].copy()
+                if df_rank.empty:
+                    st.info('Nessun giocatore supera la soglia minima selezionata.')
+                else:
+                    df_rank['Serve Impact Index'] = df_rank['Media Km/h'].fillna(0) * (df_rank['% Valide'].fillna(0) / 100) * (1 - df_rank['% Errori'].fillna(0) / 100)
+                    df_rank = df_rank.sort_values('Serve Impact Index', ascending=False).reset_index(drop=True)
+                    df_rank.insert(0, 'Rank', range(1, len(df_rank) + 1))
+
+                    st.caption('Indice sintetico = Media Km/h × % Valide × (1 - % Errori). Nessun riferimento ai finali: qui guardiamo solo il rendimento complessivo.')
+                    st.dataframe(df_rank, use_container_width=True, hide_index=True)
+
+                    fig_rank = px.bar(df_rank.head(10), x='Serve Impact Index', y='Player', orientation='h', text='Serve Impact Index')
+                    fig_rank.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
+                    fig_rank.update_layout(title='Top ranking battitori', yaxis={'categoryorder': 'total ascending'})
+                    st.plotly_chart(fig_rank, use_container_width=True)
+
+elif scelta == "Insight":
+    st.markdown("<h2 style='text-align: center;'>💡 INSIGHT AUTOMATICI</h2>", unsafe_allow_html=True)
+
+    df_base = st.session_state['df_master'].copy() if ('df_master' in st.session_state and not st.session_state['df_master'].empty) else df_master.copy()
+
+    if df_base.empty:
+        st.warning("⚠️ Carica prima il database per visualizzare gli Insight.")
+    else:
+        colonne_minime = ['Data', 'Avv.', 'Team', 'Player', 'Vel.']
+        colonne_mancanti = [c for c in colonne_minime if c not in df_base.columns]
+        if colonne_mancanti:
+            st.error(f"❌ Mancano queste colonne nel database: {colonne_mancanti}")
+        else:
+            df_base = df_base.copy()
+            df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
+            df_base['Data'] = parse_match_dates(df_base['Data_raw'])
+            df_base = df_base.dropna(subset=['Data']).copy()
+            df_base['Data_Solo'] = df_base['Data'].dt.date
+            df_base['Avv.'] = df_base['Avv.'].astype(str).str.strip()
+            df_base['Team'] = df_base['Team'].astype(str).str.strip()
+            df_base['Player'] = df_base['Player'].astype(str).str.strip()
+            df_base['Vel_Str'] = df_base['Vel.'].astype(str).str.upper().str.strip()
+            df_base['Vel_Num'] = df_base['Vel.'].apply(clean_vel_val)
+            df_base['Is_Spin'] = df_base['Vel_Num'].notna() | df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Error'] = df_base['Vel_Str'].isin(['N', 'F'])
+            df_base['Is_Valid'] = df_base['Vel_Num'].notna()
+            df_base['Match_Label'] = df_base['Data_Solo'].astype(str) + " - vs " + df_base['Avv.']
+            df_p = df_base[df_base['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False) & df_base['Is_Spin']].copy()
+
+            if df_p.empty:
+                st.info('Nessun dato utile per generare insight.')
+            else:
+                df_match = (
+                    df_p.groupby(['Match_Label', 'Data_Solo', 'Avv.'])
+                    .agg(
+                        **{
+                            'Spin Totali': ('Vel_Str', 'size'),
+                            'Media Km/h': ('Vel_Num', 'mean'),
+                            '% Errori': ('Is_Error', lambda x: x.mean() * 100)
+                        }
+                    )
+                    .reset_index()
+                    .sort_values('Data_Solo')
+                )
+                df_player = (
+                    df_p.groupby('Player')
+                    .agg(
+                        **{
+                            'Spin Totali': ('Vel_Str', 'size'),
+                            'Media Km/h': ('Vel_Num', 'mean'),
+                            '% Errori': ('Is_Error', lambda x: x.mean() * 100),
+                            '% Valide': ('Is_Valid', lambda x: x.mean() * 100)
+                        }
+                    )
+                    .reset_index()
+                )
+                df_player_min = df_player[df_player['Spin Totali'] >= 15].copy()
+                insights = []
+                if not df_match.empty:
+                    best_speed = df_match.loc[df_match['Media Km/h'].idxmax()]
+                    worst_err = df_match.loc[df_match['% Errori'].idxmax()]
+                    insights.append(f"La partita con velocità media più alta è stata contro {best_speed['Avv.']} il {pd.to_datetime(best_speed['Data_Solo']).strftime('%d/%m/%Y')} con {best_speed['Media Km/h']:.1f} km/h.")
+                    insights.append(f"La partita con la percentuale errori più alta è stata contro {worst_err['Avv.']} il {pd.to_datetime(worst_err['Data_Solo']).strftime('%d/%m/%Y')} con {worst_err['% Errori']:.1f}%.")
+                    if len(df_match) >= 6:
+                        recent = df_match.tail(3)
+                        prev = df_match.iloc[-6:-3]
+                        if not prev.empty:
+                            diff_vel = recent['Media Km/h'].mean() - prev['Media Km/h'].mean()
+                            diff_err = recent['% Errori'].mean() - prev['% Errori'].mean()
+                            verso_vel = 'in crescita' if diff_vel > 0 else 'in calo'
+                            verso_err = 'in crescita' if diff_err > 0 else 'in calo'
+                            insights.append(f"Nelle ultime 3 partite la velocità media è {verso_vel} di {abs(diff_vel):.1f} km/h rispetto alle 3 precedenti.")
+                            insights.append(f"Nelle ultime 3 partite la percentuale errori è {verso_err} di {abs(diff_err):.1f} punti rispetto alle 3 precedenti.")
+                if not df_player_min.empty:
+                    best_valid = df_player_min.loc[df_player_min['% Valide'].idxmax()]
+                    best_speed_player = df_player_min.loc[df_player_min['Media Km/h'].idxmax()]
+                    insights.append(f"Il battitore più affidabile, sopra la soglia minima, è {best_valid['Player']} con {best_valid['% Valide']:.1f}% di battute valide.")
+                    insights.append(f"Il battitore con la velocità media più alta, sopra la soglia minima, è {best_speed_player['Player']} con {best_speed_player['Media Km/h']:.1f} km/h.")
+
+                if insights:
+                    for i, txt in enumerate(insights, 1):
+                        st.markdown(f"**{i}.** {txt}")
+                else:
+                    st.info('Dati ancora insufficienti per produrre insight utili.')
+
+                if not df_match.empty:
+                    fig_ins = px.line(df_match, x='Data_Solo', y='Media Km/h', markers=True, text='Media Km/h')
+                    fig_ins.update_traces(texttemplate='%{text:.1f}', textposition='top center')
+                    fig_ins.update_layout(title='Velocità media Perugia nel tempo', xaxis_title='', yaxis_title='Km/h')
+                    st.plotly_chart(fig_ins, use_container_width=True)
 
 elif scelta == "Storico Avversari":
     st.markdown("<h2 style='text-align: center;'>📚 STORICO AVVERSARI</h2>", unsafe_allow_html=True)
