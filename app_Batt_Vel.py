@@ -378,6 +378,20 @@ def sdoppia_percentuali(df):
     return df_out
 
 
+
+
+def uniforma_decimali(df):
+    """Arrotonda a un solo decimale tutte le colonne di velocità, percentuali e indici."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    df = df.copy()
+    chiavi = ['km/h', '%', 'index']
+    for col in df.columns:
+        col_str = str(col).lower()
+        if any(k in col_str for k in chiavi):
+            df[col] = pd.to_numeric(df[col], errors='coerce').round(1)
+    return df
+
 def sdoppia_btxbt(df):
     """Prepara un DataFrame piatto per Excel, evitando MultiIndex.
     Ogni colonna viene sdoppiata in Tipo e Vel/Err.
@@ -819,9 +833,9 @@ elif scelta == "Report Partita":
                             buffer_squadre = io.BytesIO()
                             with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
                                 if r_p:
-                                    sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h)).to_excel(writer, sheet_name='Perugia', index=False)
+                                    uniforma_decimali(sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))).to_excel(writer, sheet_name='Perugia', index=False)
                                 if r_o:
-                                    sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h)).to_excel(writer, sheet_name=nome_avv[:30], index=False)
+                                    uniforma_decimali(sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h))).to_excel(writer, sheet_name=nome_avv[:30], index=False)
                             st.download_button(
                                 label="📥 Scarica Report Squadre",
                                 data=buffer_squadre.getvalue(),
@@ -907,9 +921,9 @@ elif scelta == "Report Partita":
                             buffer_player = io.BytesIO()
                             with pd.ExcelWriter(buffer_player, engine='xlsxwriter') as writer:
                                 if not df_p_raw.empty:
-                                    sdoppia_percentuali(df_p_raw).to_excel(writer, sheet_name='Perugia_Player', index=False)
+                                    uniforma_decimali(sdoppia_percentuali(df_p_raw)).to_excel(writer, sheet_name='Perugia_Player', index=False)
                                 if not df_o_raw.empty:
-                                    sdoppia_percentuali(df_o_raw).to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30], index=False)
+                                    uniforma_decimali(sdoppia_percentuali(df_o_raw)).to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30], index=False)
                             st.download_button(
                                 label="📥 Scarica Report Player",
                                 data=buffer_player.getvalue(),
@@ -950,9 +964,9 @@ elif scelta == "Report Partita":
                                 buffer_bt = io.BytesIO()
                                 with pd.ExcelWriter(buffer_bt, engine='xlsxwriter') as writer:
                                     if not df_p_bt.empty:
-                                        sdoppia_btxbt(df_p_bt).to_excel(writer, sheet_name='Perugia', index=False)
+                                        uniforma_decimali(sdoppia_btxbt(df_p_bt)).to_excel(writer, sheet_name='Perugia', index=False)
                                     if not df_a_bt.empty:
-                                        sdoppia_btxbt(df_a_bt).to_excel(writer, sheet_name='Avversario', index=False)
+                                        uniforma_decimali(sdoppia_btxbt(df_a_bt)).to_excel(writer, sheet_name='Avversario', index=False)
                                 st.download_button(
                                     label=f"📥 Scarica BtxBT Set {int(float(set_scelto))}",
                                     data=buffer_bt.getvalue(),
@@ -1412,7 +1426,7 @@ elif scelta == "Trend Team/Player":
                                         df_plot['Giocatore'] = giocatore_scelto
                                         colonne_tabella = ['Giocatore'] + colonne_tabella
                                     st.dataframe(
-                                        df_plot[colonne_tabella],
+                                        uniforma_decimali(df_plot[colonne_tabella]),
                                         use_container_width=True,
                                         hide_index=True
                                     )
@@ -1420,7 +1434,7 @@ elif scelta == "Trend Team/Player":
 
                                     pdf_bytes = build_trend_pdf(
                                         selected_matches=selected_matches,
-                                        df_table_pdf=df_plot[colonne_tabella].copy(),
+                                        df_table_pdf=uniforma_decimali(df_plot[colonne_tabella].copy()),
                                         df_plot_pdf=df_plot.copy(),
                                         modalita=modalita,
                                         etichetta_metriche=etichetta_metriche
@@ -1532,8 +1546,8 @@ elif scelta == "Scheda Battitore":
 
                     st.write('### 📋 Dettaglio per partita')
                     st.dataframe(
-                        df_match[['Data_Solo', 'Avv.', 'Spin Totali', 'Media Km/h', 'Max Km/h', '% Valide', '% Errori']]
-                        .rename(columns={'Data_Solo': 'Data', 'Avv.': 'Avversario'}),
+                        uniforma_decimali(df_match[['Data_Solo', 'Avv.', 'Spin Totali', 'Media Km/h', 'Max Km/h', '% Valide', '% Errori']]
+                        .rename(columns={'Data_Solo': 'Data', 'Avv.': 'Avversario'})),
                         use_container_width=True,
                         hide_index=True
                     )
@@ -1614,9 +1628,9 @@ elif scelta == "Confronto Partite":
 
                     st.write('### 📋 Tabella comparativa')
                     st.dataframe(
-                        df_cmp[['Data_Solo', 'Avv.', 'Side', 'Spin Totali', 'Media Km/h', '% Errori']].rename(
+                        uniforma_decimali(df_cmp[['Data_Solo', 'Avv.', 'Side', 'Spin Totali', 'Media Km/h', '% Errori']].rename(
                             columns={'Data_Solo': 'Data', 'Avv.': 'Avversario', 'Side': 'Squadra'}
-                        ),
+                        )),
                         use_container_width=True,
                         hide_index=True
                     )
@@ -1669,11 +1683,12 @@ elif scelta == "Ranking Battitori":
                     st.info('Nessun giocatore supera la soglia minima selezionata.')
                 else:
                     df_rank['Serve Impact Index'] = df_rank['Media Km/h'].fillna(0) * (df_rank['% Valide'].fillna(0) / 100) * (1 - df_rank['% Errori'].fillna(0) / 100)
+                    df_rank = uniforma_decimali(df_rank)
                     df_rank = df_rank.sort_values('Serve Impact Index', ascending=False).reset_index(drop=True)
                     df_rank.insert(0, 'Rank', range(1, len(df_rank) + 1))
 
                     st.caption('Indice sintetico = Media Km/h × % Valide × (1 - % Errori). Nessun riferimento ai finali: qui guardiamo solo il rendimento complessivo.')
-                    st.dataframe(df_rank, use_container_width=True, hide_index=True)
+                    st.dataframe(uniforma_decimali(df_rank), use_container_width=True, hide_index=True)
 
                     fig_rank = px.bar(df_rank.head(10), x='Serve Impact Index', y='Player', orientation='h', text='Serve Impact Index')
                     fig_rank.update_traces(texttemplate='%{text:.1f}', textposition='outside', cliponaxis=False)
