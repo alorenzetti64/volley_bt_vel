@@ -401,7 +401,6 @@ def save_to_github(df):
 
 # --- 4. INTERFACCIA STREAMLIT ---
 st.set_page_config(page_title="Sir Susa Vim Perugia - Stats", layout="wide")
-st.warning("DEBUG VERSIONE NUOVA - TEST 11 MARZO")
 st.sidebar.title("🏐 Menu Analisi")
 scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend Team/Player", "Storico Avversari"])
 
@@ -417,55 +416,102 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+def load_uploaded_match_file(uploaded_file):
+    """Legge CSV/XLSM/XLSX e restituisce il dataframe normalizzato con le sole 8 colonne utili."""
+    file_name = uploaded_file.name.lower()
+
+    if file_name.endswith('.csv'):
+        try:
+            df_raw = pd.read_csv(uploaded_file, sep=';', engine='python', dtype=str)
+            if df_raw.shape[1] < 8:
+                uploaded_file.seek(0)
+                df_raw = pd.read_csv(uploaded_file, sep=',', engine='python', dtype=str)
+        except Exception:
+            uploaded_file.seek(0)
+            df_raw = pd.read_csv(uploaded_file, sep=',', engine='python', dtype=str)
+    else:
+        df_raw = pd.read_excel(uploaded_file, sheet_name="Foglio1", engine="openpyxl", dtype=str)
+
+    if df_raw is None or df_raw.shape[1] < 8:
+        raise ValueError("Il file non contiene almeno 8 colonne utili nelle prime colonne.")
+
+    df_new = df_raw.iloc[:, 0:8].copy()
+    df_new.columns = COLUMNS_A_H
+
+    # Riempie eventuali celle vuote dovute a merge / celle ripetute mancanti
+    for col in ['Data', 'Partita', 'Avv.', 'Team', 'Set']:
+        df_new[col] = df_new[col].ffill()
+
+    # Normalizzazione
+    df_new['Data'] = df_new['Data'].astype(str).str.strip()
+    df_new['Partita'] = df_new['Partita'].astype(str).str.strip()
+    df_new['Avv.'] = df_new['Avv.'].astype(str).str.upper().str.strip()
+    df_new['Team'] = df_new['Team'].astype(str).str.upper().str.strip()
+    df_new['Set'] = df_new['Set'].astype(str).str.strip()
+    df_new['Player'] = df_new['Player'].astype(str).str.strip()
+    df_new['Tipo'] = df_new['Tipo'].astype(str).str.upper().str.strip()
+    df_new['Vel.'] = df_new['Vel.'].astype(str).str.upper().str.strip()
+
+    # Togli righe sporche
+    df_new = df_new.dropna(subset=['Player'], how='all')
+    df_new = df_new[df_new['Player'].ne('')]
+    df_new = df_new[df_new['Data'].str.upper() != 'NAT']
+    df_new = df_new[df_new['Tipo'].isin(['SPIN', 'FLOAT'])]
+
+    return df_new.reset_index(drop=True)
+
 if scelta == "Caricamento Dati":
     st.title("🚀 Database")
-    tab1, tab2 = st.tabs(["Carica Excel", "Pulisci Database"])
+    tab1, tab2 = st.tabs(["Carica CSV / Excel", "Pulisci Database"])
     
     with tab1:
-            uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
-            if uploaded:
-                df_raw = pd.read_excel(uploaded, sheet_name="Foglio1", engine="openpyxl")
+        uploaded = st.file_uploader("Seleziona file .csv o .xlsm", type=["csv", "xlsm", "xlsx"])
+        if uploaded:
+            try:
+                df_new = load_uploaded_match_file(uploaded)
+            except Exception as e:
+                st.error(f"Errore nel caricamento del file: {e}")
+                st.stop()
 
-                df_new = df_raw.iloc[:, 0:8].copy()
-                df_new.columns = COLUMNS_A_H
+            st.write("DEBUG IMPORT - Team x Tipo:")
+            st.write(df_new.groupby(['Team', 'Tipo']).size().reset_index(name='conteggio'))
 
-                # Riempie eventuali celle vuote dovute a merge nel file Excel
-                for col in ['Data', 'Partita', 'Avv.', 'Team', 'Set']:
-                    df_new[col] = df_new[col].ffill()
+            df_spin_debug = df_new[df_new['Tipo'].eq('SPIN')].copy()
+            df_spin_debug['Vel_Num'] = df_spin_debug['Vel.'].apply(clean_vel_val)
+            st.write("DEBUG IMPORT - Spin totali / spin con velocità numerica:")
+            st.write(
+                df_spin_debug.groupby('Team').agg(
+                    Spin_Totali=('Tipo', 'size'),
+                    Spin_Valide=('Vel_Num', lambda x: int(x.notna().sum())),
+                    Variazioni_V=('Vel.', lambda x: int(x.astype(str).eq('V').sum())),
+                    Errori_N=('Vel.', lambda x: int(x.astype(str).eq('N').sum())),
+                    Errori_F=('Vel.', lambda x: int(x.astype(str).eq('F').sum())),
+                ).reset_index()
+            )
 
-                # Normalizzazione
-                df_new['Team'] = df_new['Team'].astype(str).str.upper().str.strip()
-                df_new['Tipo'] = df_new['Tipo'].astype(str).str.upper().str.strip()
-                df_new['Player'] = df_new['Player'].astype(str).str.strip()
-                df_new['Vel.'] = df_new['Vel.'].astype(str).str.strip()
+            if st.button("🚀 Sincronizza su GitHub"):
+                with st.spinner("Sincronizzazione in corso..."):
+                    df_combined = df_master.copy()
 
-                # Togli righe inutili / sporche
-                df_new = df_new.dropna(subset=['Player'], how='all')
-                df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
-                df_new = df_new[df_new['Tipo'].isin(['SPIN', 'FLOAT'])]
+                    # SOSTITUISCE la stessa partita, non la somma
+                    chiavi_match = df_new[['Data', 'Avv.', 'Partita']].drop_duplicates()
 
-                # ID progressivo: così due righe uguali restano due battute diverse
-                df_new['Ordine'] = range(1, len(df_new) + 1)
+                    for _, r in chiavi_match.iterrows():
+                        mask = (
+                            df_combined['Data'].astype(str).str.strip().eq(str(r['Data']).strip()) &
+                            df_combined['Avv.'].astype(str).str.upper().str.strip().eq(str(r['Avv.']).strip()) &
+                            df_combined['Partita'].astype(str).str.strip().eq(str(r['Partita']).strip())
+                        )
+                        df_combined = df_combined[~mask]
 
-                st.write("DEBUG IMPORT - Team x Tipo:")
-                st.write(df_new.groupby(['Team', 'Tipo']).size().reset_index(name='conteggio'))
+                    df_combined = pd.concat([df_combined, df_new], ignore_index=True)
 
-                if st.button("🚀 Sincronizza su GitHub"):
-                    with st.spinner("Sincronizzazione in corso..."):
-                        df_combined = pd.concat([df_master, df_new], ignore_index=True)
+                    st.session_state['df_master'] = df_combined.copy()
+                    save_to_github(df_combined)
 
-                        # Pulizia finale
-                        df_combined = df_combined.dropna(subset=['Data'], how='any')
-                        df_combined = df_combined[df_combined['Data'].astype(str).str.upper() != 'NAT']
-
-                        st.session_state['df_master'] = df_combined
-                        save_to_github(df_combined)
-
-                        st.success("Dati sincronizzati!")
-                        
                     st.success("Dati sincronizzati!")
-                    st.balloons() # <--- I palloncini ora voleranno!
-                    time.sleep(2) # <--- Ritardo magico
+                    st.balloons()
+                    time.sleep(2)
                     st.rerun()
 
     with tab2:
@@ -505,8 +551,9 @@ if scelta == "Caricamento Dati":
                     # Filtra il database master rimuovendo i match selezionati
                     for _, row in partite_da_eliminare.iterrows():
                         df_master = df_master[~(
-                            (df_master['Data'].astype(str) == str(row['Data'])) & 
-                            (df_master['Avv.'].astype(str) == str(row['Avv.']))
+                            (df_master['Data'].astype(str).str.strip() == str(row['Data']).strip()) &
+                            (df_master['Avv.'].astype(str).str.upper().str.strip() == str(row['Avv.']).strip().upper()) &
+                            (df_master['Partita'].astype(str).str.strip() == str(row['Partita']).strip())
                         )]
                     
                     st.session_state['df_master'] = df_master.copy()
