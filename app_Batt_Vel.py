@@ -561,6 +561,18 @@ elif scelta == "Match":
                             .sort_values(['Set', 'Tipo'])
                         )
 
+                        st.write("Valori Team presenti nel report:")
+                        st.write(df_report['Team'].astype(str).value_counts(dropna=False))
+
+                        st.write("Valori Tipo presenti nel report:")
+                        st.write(df_report['Tipo'].astype(str).value_counts(dropna=False))
+
+                        st.write("Righe con Team vuoto o NaN:")
+                        st.write(df_report[df_report['Team'].isna() | (df_report['Team'].astype(str).str.strip() == '')])
+
+                        st.write("Righe che NON contengono PERUGIA nel Team:")
+                        st.write(df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)][['Set', 'Team', 'Tipo', 'Vel.']])
+
                         st.markdown(f"### 🏐 PERUGIA")
                     df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
 
