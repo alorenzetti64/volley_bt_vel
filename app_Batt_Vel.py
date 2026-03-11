@@ -988,7 +988,12 @@ elif scelta == "Match":
 
                             fig_line.update_layout(
                                 xaxis_title="Set",
-                                yaxis_title="Velocità media (km/h)"
+                                yaxis_title="Velocità media (km/h)",
+                                xaxis=dict(
+                                    tickmode='linear',
+                                    tick0=1,
+                                    dtick=1
+                                )
                             )
                             st.plotly_chart(fig_line, use_container_width=True)
 
