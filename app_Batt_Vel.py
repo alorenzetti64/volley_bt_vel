@@ -608,6 +608,12 @@ elif scelta == "Match":
                         .format({"Media Km/h": "{:.1f}"})
                     )
 
+                    st.write("Conteggio SPIN per Team:")
+                    st.write(
+                        df_report[df_report['Tipo'].astype(str).str.upper().str.strip() == 'SPIN']
+                        ['Team'].astype(str).value_counts(dropna=False)
+                    )
+
                     st.markdown(f"### 🏐 {nome_avv}")
                     df_o = df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
                     r_o = []
