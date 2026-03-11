@@ -315,29 +315,12 @@ def clean_vel_val(val):
     try: return float(s.replace(',', '.'))
     except: return None
 
-def calcola_stats(df_in):
-        df = df_in.copy()
-
-    # normalizzazione
-        df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
-        df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
-
-    # considero solo le battute SPIN
-        df_spin = df[df['TipoU'] == 'SPIN'].copy()
-
-    # codici speciali
-        def normalize_code(s):
-            s = str(s).strip().upper()
-        if s.startswith('V'):
-            return 'V'
-        if s.startswith('N'):
-            return 'N'
-        if s.startswith('F'):
-            return 'F'
-        return ''
 
 def calcola_stats(df_in):
     df = df_in.copy()
+    # DEBUG
+    st.error("SONO NELLA CALCOLA_STATS GIUSTA")
+    st.write(df[['Team', 'Set', 'Player', 'Tipo', 'Vel.']].head(30))
 
     # Normalizzo colonne
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
