@@ -65,6 +65,17 @@ def parse_match_dates(series):
 
     return dt
 
+def normalizza_nomi_giocatori(df, colonna='Player'):
+    if colonna not in df.columns:
+        return df
+    df = df.copy()
+    s = df[colonna].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True)
+    chiave = s.str.casefold()
+    validi = chiave.notna() & chiave.ne('') & chiave.ne('nan') & chiave.ne('none')
+    s.loc[validi] = s.loc[validi].str.upper()
+    df[colonna] = s
+    return df
+
 def _safe_pdf_text(value):
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -470,9 +481,10 @@ scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Report Partita", "Tre
 
 # Usa prima i dati caricati nella sessione; solo in assenza totale ripiega su GitHub.
 if 'df_master' in st.session_state and isinstance(st.session_state['df_master'], pd.DataFrame):
-    df_master = st.session_state['df_master'].copy()
+    df_master = normalizza_nomi_giocatori(st.session_state['df_master'].copy(), 'Player')
+    st.session_state['df_master'] = df_master.copy()
 else:
-    df_master = load_master_from_github()
+    df_master = normalizza_nomi_giocatori(load_master_from_github(), 'Player')
     st.session_state['df_master'] = df_master.copy()
 
 import warnings
@@ -513,6 +525,7 @@ def load_uploaded_match_file(uploaded_file):
     df_new['Team'] = df_new['Team'].astype(str).str.upper().str.strip()
     df_new['Set'] = df_new['Set'].astype(str).str.strip()
     df_new['Player'] = df_new['Player'].astype(str).str.strip()
+    df_new = normalizza_nomi_giocatori(df_new, 'Player')
     df_new['Tipo'] = df_new['Tipo'].astype(str).str.upper().str.strip()
     df_new['Vel.'] = df_new['Vel.'].astype(str).str.upper().str.strip()
 
@@ -560,7 +573,7 @@ if scelta == "Caricamento Dati":
 
             if st.button("🚀 Sincronizza su GitHub"):
                 with st.spinner("Sincronizzazione in corso..."):
-                    df_combined = df_master.copy()
+                    df_combined = normalizza_nomi_giocatori(df_master.copy(), 'Player')
 
                     # SOSTITUISCE la stessa partita, non la somma
                     chiavi_match = df_new[['Data', 'Avv.', 'Partita']].drop_duplicates()
@@ -574,6 +587,7 @@ if scelta == "Caricamento Dati":
                         df_combined = df_combined[~mask]
 
                     df_combined = pd.concat([df_combined, df_new], ignore_index=True)
+                    df_combined = normalizza_nomi_giocatori(df_combined, 'Player')
 
                     st.session_state['df_master'] = df_combined.copy()
                     save_to_github(df_combined)
