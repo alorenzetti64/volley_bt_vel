@@ -319,15 +319,15 @@ def calcola_stats(df_in):
         df = df_in.copy()
 
     # normalizzazione
-    df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
-    df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
+        df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
+        df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
 
     # considero solo le battute SPIN
-    df_spin = df[df['TipoU'] == 'SPIN'].copy()
+        df_spin = df[df['TipoU'] == 'SPIN'].copy()
 
     # codici speciali
-    def normalize_code(s):
-        s = str(s).strip().upper()
+        def normalize_code(s):
+            s = str(s).strip().upper()
         if s.startswith('V'):
             return 'V'
         if s.startswith('N'):
