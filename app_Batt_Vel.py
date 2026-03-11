@@ -419,6 +419,7 @@ def save_to_github(df):
 
 # --- 4. INTERFACCIA STREAMLIT ---
 st.set_page_config(page_title="Sir Susa Vim Perugia - Stats", layout="wide")
+st.warning("DEBUG VERSIONE NUOVA - TEST 11 MARZO")
 st.sidebar.title("🏐 Menu Analisi")
 scelta = st.sidebar.radio("Scegli:", ["Caricamento Dati", "Match", "Trend Team/Player", "Storico Avversari"])
 
