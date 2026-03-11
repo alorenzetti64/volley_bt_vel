@@ -318,7 +318,6 @@ def clean_vel_val(val):
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    # Normalizzazione
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
 
@@ -331,26 +330,16 @@ def calcola_stats(df_in):
         except Exception:
             return None
 
-    df['Vel_Num'] = df['Vel.'].apply(clean_spin_numeric)
+    # CONTA SOLO LE VERE SPIN
+    df_spin = df[df['TipoU'] == 'SPIN'].copy()
+    df_spin['Vel_Num'] = df_spin['Vel.'].apply(clean_spin_numeric)
 
-    # LOGICA GIUSTA:
-    # una battuta SPIN è:
-    # - una battuta con velocità numerica
-    # - oppure con codice V / N / F nella colonna velocità
-    is_spin = df['Vel_Num'].notna() | df['VelS'].isin(['V', 'N', 'F'])
-
-    df_spin = df[is_spin].copy()
-
-    # Totale spin
     tot = len(df_spin)
-
-    # Spin valide = solo quelle con km/h numerico
     df_spin_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
     n_spin = len(df_spin_valide)
 
     media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
 
-    # Eventi speciali
     n_var = int((df_spin['VelS'] == 'V').sum())
     n_net = int((df_spin['VelS'] == 'N').sum())
     n_out = int((df_spin['VelS'] == 'F').sum())
@@ -435,22 +424,38 @@ if scelta == "Caricamento Dati":
     with tab1:
             uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
             if uploaded:
-                df_raw = pd.read_excel(uploaded, sheet_name="Foglio1")
-                st.write("DEBUG RAW colonne originali:", df_raw.columns.tolist())
-                st.write("DEBUG RAW righe totali:", len(df_raw))
-                st.dataframe(df_raw.head(20))
+                df_raw = pd.read_excel(uploaded, sheet_name="Foglio1", engine="openpyxl")
 
+                # Prendo le prime 8 colonne utili
                 df_new = df_raw.iloc[:, 0:8].copy()
                 df_new.columns = COLUMNS_A_H
 
-                st.write("DEBUG DOPO iloc 0:8 - righe:", len(df_new))
-                st.write("DEBUG DOPO iloc 0:8 - Team x Tipo:")
+                # Pulizia celle vuote / celle unite di Excel
+                for col in ['Data', 'Partita', 'Avv.', 'Team', 'Set']:
+                    df_new[col] = df_new[col].replace('', pd.NA).ffill()
+
+                # Normalizzazione testo
+                df_new['Team'] = df_new['Team'].astype(str).str.upper().str.strip()
+                df_new['Tipo'] = df_new['Tipo'].astype(str).str.upper().str.strip()
+                df_new['Player'] = df_new['Player'].astype(str).str.strip()
+                df_new['Vel.'] = df_new['Vel.'].astype(str).str.strip()
+
+                # Elimina righe davvero vuote
+                df_new = df_new.dropna(how='all')
+                df_new = df_new[~(
+                    (df_new['Player'].astype(str).str.strip() == '') &
+                    (df_new['Tipo'].astype(str).str.strip() == '') &
+                    (df_new['Vel.'].astype(str).str.strip() == '')
+                )]
+
+                # Filtro anti-NaT
+                df_new = df_new.dropna(subset=['Data'], how='all')
+                df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
+
+                # Debug utile
+                st.write("DEBUG IMPORT - Team x Tipo:")
                 st.write(df_new.groupby(['Team', 'Tipo']).size().reset_index(name='conteggio'))
                 st.dataframe(df_new.head(20))
-                
-                # Filtro anti-NaT
-                df_new = df_new.dropna(subset=['Data', 'Player'], how='all')
-                df_new = df_new[df_new['Data'].astype(str).str.upper() != 'NAT']
 
                 if st.button("🚀 Sincronizza su GitHub"):
                     with st.spinner("Sincronizzazione in corso..."):
