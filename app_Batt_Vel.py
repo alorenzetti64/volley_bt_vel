@@ -102,6 +102,60 @@ def _safe_pdf_text(value):
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+
+def build_player_sheet_pdf(player_name, selected_matches, metrics_dict, df_table_pdf):
+    """Crea un PDF semplice per la Scheda Battitore."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    import tempfile
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    doc = SimpleDocTemplate(tmp.name, pagesize=A4, leftMargin=32, rightMargin=32, topMargin=32, bottomMargin=32)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph(f"Scheda Battitore - {player_name}", styles["Title"]))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"Partite selezionate: {selected_matches}", styles["Normal"]))
+    story.append(Spacer(1, 10))
+
+    metric_rows = [["Indicatore", "Valore"]]
+    for k, v in metrics_dict.items():
+        metric_rows.append([str(k), str(v)])
+
+    metric_table = Table(metric_rows, repeatRows=1)
+    metric_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E8EEF7")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8F8F8")]),
+    ]))
+    story.append(metric_table)
+    story.append(Spacer(1, 14))
+
+    if df_table_pdf is not None and not df_table_pdf.empty:
+        data = [list(df_table_pdf.columns)] + df_table_pdf.astype(str).values.tolist()
+        table = Table(data, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DDEBF7")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAFA")]),
+            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ]))
+        story.append(Paragraph("Dettaglio partite", styles["Heading2"]))
+        story.append(Spacer(1, 6))
+        story.append(table)
+
+    doc.build(story)
+    with open(tmp.name, "rb") as f:
+        return f.read()
+
+
 def build_trend_pdf(selected_matches, df_table_pdf, df_plot_pdf, modalita, etichetta_metriche):
     buffer = io.BytesIO()
 
@@ -1545,11 +1599,37 @@ elif scelta == "Scheda Battitore":
                         st.plotly_chart(fig_err, use_container_width=True)
 
                     st.write('### 📋 Dettaglio per partita')
+                    player_pdf_df = uniforma_decimali(
+                        df_match[['Data_Solo', 'Avv.', 'Spin Totali', 'Media Km/h', 'Max Km/h', '% Valide', '% Errori']]
+                        .rename(columns={'Data_Solo': 'Data', 'Avv.': 'Avversario'})
+                        .copy()
+                    )
                     st.dataframe(
-                        uniforma_decimali(df_match[['Data_Solo', 'Avv.', 'Spin Totali', 'Media Km/h', 'Max Km/h', '% Valide', '% Errori']]
-                        .rename(columns={'Data_Solo': 'Data', 'Avv.': 'Avversario'})),
+                        player_pdf_df,
                         use_container_width=True,
                         hide_index=True
+                    )
+
+                    player_metrics = {
+                        'Spin Totali': int(spin_tot) if pd.notna(spin_tot) else '-',
+                        'Media Km/h': f"{media_kmh:.1f}" if pd.notna(media_kmh) else '-',
+                        'Max Km/h': f"{max_kmh:.1f}" if pd.notna(max_kmh) else '-',
+                        '% Valide': f"{perc_valide:.1f}" if pd.notna(perc_valide) else '-',
+                        '% Errori': f"{perc_errori:.1f}" if pd.notna(perc_errori) else '-',
+                        'Serve Impact Index': f"{player_index:.1f}" if pd.notna(player_index) else '-',
+                    }
+                    pdf_player = build_player_sheet_pdf(
+                        player_sel,
+                        len(df_match),
+                        player_metrics,
+                        player_pdf_df
+                    )
+                    st.download_button(
+                        "📄 Scarica PDF Scheda Battitore",
+                        data=pdf_player,
+                        file_name=f"scheda_battitore_{player_sel.lower().replace(' ', '_')}.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_scheda_battitore_{player_sel}"
                     )
 
 elif scelta == "Confronto Partite":
