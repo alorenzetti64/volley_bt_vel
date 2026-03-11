@@ -315,64 +315,61 @@ def clean_vel_val(val):
     try: return float(s.replace(',', '.'))
     except: return None
 
-
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    # Normalizzo colonne
+    # Normalizzazione
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
 
-    # Tengo solo le battute SPIN
-    df_spin = df[df['TipoU'] == 'SPIN'].copy()
-
-    # TOT = tutte le SPIN, comprese quelle con V / N / F
-    tot = len(df_spin)
-
-    # Funzione per riconoscere i codici speciali
-    def is_special_code(s):
-        s = str(s).strip().upper()
-        return s.startswith('V') or s.startswith('N') or s.startswith('F')
-
-    # SPIN valide = solo quelle numeriche
     def clean_spin_numeric(val):
         s = str(val).strip().upper()
-        if s in ['', 'NAN', 'NONE']:
-            return None
-        if is_special_code(s):
+        if s in ['', 'NAN', 'NONE', 'V', 'N', 'F']:
             return None
         try:
             return float(s.replace(',', '.'))
         except Exception:
             return None
 
-    df_spin['Vel_Num'] = df_spin['Vel.'].apply(clean_spin_numeric)
+    df['Vel_Num'] = df['Vel.'].apply(clean_spin_numeric)
 
+    # LOGICA GIUSTA:
+    # una battuta SPIN è:
+    # - una battuta con velocità numerica
+    # - oppure con codice V / N / F nella colonna velocità
+    is_spin = df['Vel_Num'].notna() | df['VelS'].isin(['V', 'N', 'F'])
+
+    df_spin = df[is_spin].copy()
+
+    # Totale spin
+    tot = len(df_spin)
+
+    # Spin valide = solo quelle con km/h numerico
     df_spin_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
     n_spin = len(df_spin_valide)
 
     media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
 
-    # Codici speciali sulle SPIN
-    n_var = df_spin['VelS'].apply(lambda x: str(x).startswith('V')).sum()
-    n_net = df_spin['VelS'].apply(lambda x: str(x).startswith('N')).sum()
-    n_out = df_spin['VelS'].apply(lambda x: str(x).startswith('F')).sum()
+    # Eventi speciali
+    n_var = int((df_spin['VelS'] == 'V').sum())
+    n_net = int((df_spin['VelS'] == 'N').sum())
+    n_out = int((df_spin['VelS'] == 'F').sum())
     n_err_tot = n_net + n_out
 
     def fmt_f(c, t):
         p = (c / t * 100) if t > 0 else 0
         return f"{c} ({p:.1f}%)"
 
-    f1 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] > 120]), n_spin)
-    f2 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 115) & (df_spin_valide['Vel_Num'] <= 120)]), n_spin)
+    f1 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] >= 120]), n_spin)
+    f2 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 115) & (df_spin_valide['Vel_Num'] < 120)]), n_spin)
     f3 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 110) & (df_spin_valide['Vel_Num'] < 115)]), n_spin)
     f4 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 100) & (df_spin_valide['Vel_Num'] < 110)]), n_spin)
     f5 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] < 100]), n_spin)
 
     var_str = fmt_f(n_var, tot)
     err_str = fmt_f(n_err_tot, tot)
-    net_str = fmt_f(n_net, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
-    out_str = fmt_f(n_out, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
+    net_str = fmt_f(n_net, n_err_tot) if n_err_tot > 0 else "0 (0.0%)"
+    out_str = fmt_f(n_out, n_err_tot) if n_err_tot > 0 else "0 (0.0%)"
 
     return [tot, n_spin, media, f1, f2, f3, f4, f5, var_str, err_str, net_str, out_str]
 
@@ -552,7 +549,7 @@ elif scelta == "Match":
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
                         st.markdown("### 🏐 PERUGIA")
-                        df_p = df_report[df_report['Team'].astype(str).str.upper().str.strip() == 'PERUGIA'].copy()
+                        df_o = df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
                         r_p = [["MATCH"] + calcola_stats(df_p)]
                         for s in sorted(df_p['Set'].dropna().unique()):
                             r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
