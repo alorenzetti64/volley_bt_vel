@@ -599,186 +599,206 @@ elif scelta == "Match":
                     st.warning("Nessun dato disponibile per le partite selezionate.")
                 else:
                     df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
+                    df_report['Set_Num'] = pd.to_numeric(df_report['Set'], errors='coerce')
+                    df_report['Tipo_Clean'] = df_report['Tipo'].astype(str).str.upper().str.strip()
+                    df_report['Team_Clean'] = df_report['Team'].astype(str).str.upper().str.strip()
+
                     info = df_report.iloc[0]
                     nome_avv = str(info['Avv.']).upper()
                     cols_h = ["Fase", "Tot.SPIN", "Spin valide", "Media Km/h", ">=120", ">=115 <120", ">=110 <115", ">=100 <110", "<100", "[V] var.ni", "Errori [N]+[F]", "Rete [N]", "Fuori [NF]"]
 
+                    mask_perugia = df_report['Team_Clean'].str.contains('PERUGIA', na=False) | df_report['Team_Clean'].str.contains('SIR', na=False)
+                    df_p = df_report[mask_perugia].copy()
+                    df_o = df_report[~mask_perugia].copy()
+
+                    set_disponibili_report = sorted(df_report['Set_Num'].dropna().unique())
+                    set_labels_report = [f"Set {int(float(s))}" for s in set_disponibili_report]
+                    tipo_errori = ['V', 'N', 'F']
+
+                    def build_team_rows(df_team):
+                        rows = []
+                        if df_team.empty:
+                            return rows
+                        rows.append(["MATCH"] + calcola_stats(df_team))
+                        for s in sorted(df_team['Set_Num'].dropna().unique()):
+                            rows.append([f"Set {int(float(s))}"] + calcola_stats(df_team[df_team['Set_Num'] == s]))
+                        return rows
+
+                    def build_player_rows(df_team, fase_label):
+                        if df_team.empty:
+                            return []
+                        if fase_label == "MATCH":
+                            df_fase = df_team.copy()
+                        else:
+                            set_num = float(fase_label.replace("Set ", ""))
+                            df_fase = df_team[df_team['Set_Num'] == set_num].copy()
+                        player_list = sorted([
+                            str(x) for x in df_fase[
+                                df_fase['Vel_Num'].notna() | df_fase['Tipo_Clean'].isin(tipo_errori)
+                            ]['Player'].dropna().unique() if str(x).strip() != ''
+                        ])
+                        rows = []
+                        for player_name in player_list:
+                            df_player = df_fase[df_fase['Player'] == player_name]
+                            if not df_player.empty:
+                                rows.append([player_name] + calcola_stats(df_player))
+                        return rows
+
+                    def build_single_player_rows(df_team, player_name):
+                        if df_team.empty or not player_name:
+                            return []
+                        df_player = df_team[df_team['Player'] == player_name].copy()
+                        if df_player.empty:
+                            return []
+                        rows = [["MATCH"] + calcola_stats(df_player)]
+                        for s in sorted(df_player['Set_Num'].dropna().unique()):
+                            rows.append([f"Set {int(float(s))}"] + calcola_stats(df_player[df_player['Set_Num'] == s]))
+                        return rows
+
+                    def genera_tabella_per_team(df_input, nome_team_target):
+                        if not nome_team_target:
+                            return pd.DataFrame()
+                        df_team = df_input[df_input['Team'] == nome_team_target].copy()
+                        giocatori = sorted(df_team['Player'].dropna().unique())
+                        if not giocatori:
+                            return pd.DataFrame()
+                        data_rows = []
+                        max_battute = df_team.groupby('Player').size().max()
+                        for i in range(max_battute):
+                            row = {}
+                            for p_name in giocatori:
+                                p_battute = df_team[df_team['Player'] == p_name]
+                                if i < len(p_battute):
+                                    b = p_battute.iloc[i]
+                                    row[p_name] = f"{b['Tipo']} {b['Vel.']}"
+                                else:
+                                    row[p_name] = ""
+                            data_rows.append(row)
+                        return pd.DataFrame(data_rows)
+
+                    def evidenzia_errori(val):
+                        v = str(val).upper()
+                        if ' N' in v or ' F' in v:
+                            return 'background-color: #ffffcc; font-weight: bold;'
+                        return ''
+
                     if m_rep == "REPORT":
-                        st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPINK</h2>", unsafe_allow_html=True)
+                        st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
                         col1, col2, col3 = st.columns(3)
                         col1.success(f"**Manifestazione**\n\n{info['Partita']}")
                         col2.success(f"**Data**\n\n{info['Data']}")
                         col3.success(f"**Avversario**\n\n{nome_avv}")
 
-                        st.write("Match selezionati:", m_sel)
-                        st.write("Righe df_report:", len(df_report))
+                        st.markdown("### 🏐 PERUGIA")
+                        r_p = build_team_rows(df_p)
+                        if r_p:
+                            st.dataframe(
+                                pd.DataFrame(r_p, columns=cols_h)
+                                .style.hide(axis='index')
+                                .apply(stile_righe, axis=1)
+                                .format({"Media Km/h": "{:.1f}"}),
+                                use_container_width=True
+                            )
+                        else:
+                            st.info("Nessun dato disponibile per Perugia.")
 
-                        debug_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
-                        st.write("Righe PERUGIA:", len(debug_p))
+                        st.markdown(f"### 🏐 {nome_avv}")
+                        r_o = build_team_rows(df_o)
+                        if r_o:
+                            st.dataframe(
+                                pd.DataFrame(r_o, columns=cols_h)
+                                .style.hide(axis='index')
+                                .apply(stile_righe, axis=1)
+                                .format({"Media Km/h": "{:.1f}"}),
+                                use_container_width=True
+                            )
+                        else:
+                            st.info("Nessun dato disponibile per l'avversario.")
 
-                        st.write(
-                            debug_p.groupby(['Set', 'Tipo'])['Vel.']
-                            .count()
-                            .reset_index()
-                            .sort_values(['Set', 'Tipo'])
-                        )
-
-                        st.write("Valori Team presenti nel report:")
-                        st.write(df_report['Team'].astype(str).value_counts(dropna=False))
-
-                        st.write("Valori Tipo presenti nel report:")
-                        st.write(df_report['Tipo'].astype(str).value_counts(dropna=False))
-
-                        st.write("Righe con Team vuoto o NaN:")
-                        st.write(df_report[df_report['Team'].isna() | (df_report['Team'].astype(str).str.strip() == '')])
-
-                        st.write("Righe che NON contengono PERUGIA nel Team:")
-                        st.write(df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)][['Set', 'Team', 'Tipo', 'Vel.']])
-
-                        st.write("Conteggio Team x Tipo:")
-                        st.write(
-                            df_report.groupby(
-                                [df_report['Team'].astype(str).str.upper().str.strip(),
-                                df_report['Tipo'].astype(str).str.upper().str.strip()]
-                            ).size().reset_index(name='conteggio')
-                        )
-
-                        debug_p_all = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
-
-                        st.write("Perugia - tutte le righe:", len(debug_p_all))
-                        st.write("Perugia - solo Spin:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'SPIN']))
-                        st.write("Perugia - solo Float:", len(debug_p_all[debug_p_all['Tipo'].astype(str).str.upper().str.strip() == 'FLOAT']))
-
-                        st.write("SPIN con Team diverso da Perugia:")
-                        tmp = df_report[df_report['Tipo'].astype(str).str.upper().str.strip() == 'SPIN'].copy()
-                        st.write(
-                            tmp[~tmp['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)]
-                            [['Set', 'Team', 'Player', 'Tipo', 'Vel.']]
-                        )
-
-                        st.markdown(f"### 🏐 PERUGIA")
-                    df_p = df_report[df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
-
-                    r_p = [["MATCH"] + calcola_stats(df_p)]
-                    for s in sorted(df_p['Set'].dropna().unique()):
-                        r_p.append([f"Set {int(float(s))}"] + calcola_stats(df_p[df_p['Set'] == s]))
-
-                    st.dataframe(
-                        pd.DataFrame(r_p, columns=cols_h)
-                        .style.hide(axis='index')
-                        .apply(stile_righe, axis=1)
-                        .format({"Media Km/h": "{:.1f}"})
-                    )
-
-                    st.write("Conteggio SPIN per Team:")
-                    st.write(
-                        df_report[df_report['Tipo'].astype(str).str.upper().str.strip() == 'SPIN']
-                        ['Team'].astype(str).value_counts(dropna=False)
-                    )
-
-                    st.markdown(f"### 🏐 {nome_avv}")
-                    df_o = df_report[~df_report['Team'].astype(str).str.upper().str.contains('PERUGIA', na=False)].copy()
-                    r_o = []
-
-                    if not df_o.empty:
-                        r_o = [["MATCH"] + calcola_stats(df_o)]
-                        for s in sorted(df_o['Set'].dropna().unique()):
-                            r_o.append([f"Set {int(float(s))}"] + calcola_stats(df_o[df_o['Set'] == s]))
-
-                        st.dataframe(
-                            pd.DataFrame(r_o, columns=cols_h)
-                            .style.hide(axis='index')
-                            .apply(stile_righe, axis=1)
-                            .format({"Media Km/h": "{:.1f}"})
-                        )
-                    else:
-                        st.info("Nessun dato disponibile per l'avversario.")
-
-
-                        buffer_squadre = io.BytesIO()
-                        with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
-                            df_p_multi = sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h))
-                            df_p_multi.to_excel(writer, sheet_name='Perugia')
-                            if r_o:
-                                df_o_multi = sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h))
-                                df_o_multi.to_excel(writer, sheet_name=nome_avv[:30])
-
-                        st.download_button(
-                            label="📥 Scarica Report Squadre",
-                            data=buffer_squadre.getvalue(),
-                            file_name="Report_Generale_Squadre.xlsx",
-                            key="btn_squadre_multi"
-                        )
+                        if r_p or r_o:
+                            buffer_squadre = io.BytesIO()
+                            with pd.ExcelWriter(buffer_squadre, engine='xlsxwriter') as writer:
+                                if r_p:
+                                    sdoppia_percentuali(pd.DataFrame(r_p, columns=cols_h)).to_excel(writer, sheet_name='Perugia', index=False)
+                                if r_o:
+                                    sdoppia_percentuali(pd.DataFrame(r_o, columns=cols_h)).to_excel(writer, sheet_name=nome_avv[:30], index=False)
+                            st.download_button(
+                                label="📥 Scarica Report Squadre",
+                                data=buffer_squadre.getvalue(),
+                                file_name="Report_Generale_Squadre.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="btn_squadre_multi"
+                            )
 
                         st.divider()
                         st.markdown("## 🏐 PERUGIA - PLAYER")
-                        p_list = sorted([str(x) for x in df_p[df_p['Vel_Num'].notna() | df_p['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].dropna().unique()])
-
-                        if p_list:
+                        fasi_perugia = ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_p['Set_Num'].dropna().unique())]
+                        fase_p_default = fasi_perugia if fasi_perugia else ["MATCH"]
+                        rg_p = []
+                        if not df_p.empty:
                             col_fase_p, col_gioc_p = st.columns(2)
                             with col_fase_p:
-                                fs_p = st.selectbox("Fase Perugia (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_p['Set'].dropna().unique())], key="fs_p_new")
-                            with col_gioc_p:
-                                ps_p = st.selectbox("Seleziona Giocatore (Tabella Individuale):", p_list, key="ps_p_new")
-
-                            rg_p = []
-                            for p_name in p_list:
-                                df_pf = df_p[df_p['Player'] == p_name] if fs_p == "MATCH" else df_p[(df_p['Player'] == p_name) & (df_p['Set'].astype(float) == float(fs_p.replace("Set ","")))]
-                                if not df_pf.empty:
-                                    rg_p.append([p_name] + calcola_stats(df_pf))
-
-                            st.dataframe(
-                                pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:]).style.apply(stile_zebra, axis=None).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
-                                use_container_width=True
-                            )
-
-                            df_i_p = df_p[df_p['Player'] == ps_p]
-                            ri_p = [["MATCH"] + calcola_stats(df_i_p)]
-                            for s in sorted(df_i_p['Set'].dropna().unique()):
-                                ri_p.append([f"Set {int(float(s))}"] + calcola_stats(df_i_p[df_i_p['Set'] == s]))
-
-                            st.dataframe(
-                                pd.DataFrame(ri_p, columns=cols_h).style.apply(stile_zebra, axis=None).apply(stile_righe, axis=1).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
-                                use_container_width=True
-                            )
+                                fs_p = st.selectbox("Fase Perugia:", fase_p_default, key="fs_p_new")
+                            rg_p = build_player_rows(df_p, fs_p)
+                            p_list = [r[0] for r in rg_p]
+                            if p_list:
+                                with col_gioc_p:
+                                    ps_p = st.selectbox("Giocatore Perugia:", p_list, key="ps_p_new")
+                                st.dataframe(
+                                    pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:])
+                                    .style.apply(stile_zebra, axis=None)
+                                    .hide(axis="index")
+                                    .format({"Media Km/h": "{:.1f}"}, precision=1),
+                                    use_container_width=True
+                                )
+                                ri_p = build_single_player_rows(df_p, ps_p)
+                                st.dataframe(
+                                    pd.DataFrame(ri_p, columns=cols_h)
+                                    .style.apply(stile_zebra, axis=None)
+                                    .apply(stile_righe, axis=1)
+                                    .hide(axis="index")
+                                    .format({"Media Km/h": "{:.1f}"}, precision=1),
+                                    use_container_width=True
+                                )
+                            else:
+                                st.info("Nessun giocatore Perugia disponibile in questa selezione.")
                         else:
-                            rg_p = []
-                            st.info("Nessun giocatore Perugia disponibile in questa selezione.")
+                            st.info("Nessun dato disponibile per Perugia.")
 
                         st.divider()
                         st.markdown(f"## 🏐 {nome_avv} - PLAYER")
-                        a_list = sorted([str(x) for x in df_o[df_o['Vel_Num'].notna() | df_o['Tipo'].isin(['V','N','F','v','n','f'])]['Player'].dropna().unique()])
-
-                        if a_list:
+                        fasi_avv = ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_o['Set_Num'].dropna().unique())]
+                        fase_a_default = fasi_avv if fasi_avv else ["MATCH"]
+                        rg_a = []
+                        if not df_o.empty:
                             col_fase_a, col_gioc_a = st.columns(2)
                             with col_fase_a:
-                                fs_a = st.selectbox(f"Fase {nome_avv} (Tabella Generale):", ["MATCH"] + [f"Set {int(float(s))}" for s in sorted(df_o['Set'].dropna().unique())], key="fs_a_new")
-                            with col_gioc_a:
-                                ps_a = st.selectbox(f"Seleziona Giocatore {nome_avv} (Tabella Individuale):", a_list, key="ps_a_new")
-
-                            rg_a = []
-                            for a_name in a_list:
-                                df_af = df_o[df_o['Player'] == a_name] if fs_a == "MATCH" else df_o[(df_o['Player'] == a_name) & (df_o['Set'].astype(float) == float(fs_a.replace("Set ","")))]
-                                if not df_af.empty:
-                                    rg_a.append([a_name] + calcola_stats(df_af))
-
-                            st.dataframe(
-                                pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:]).style.apply(stile_zebra, axis=None).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
-                                use_container_width=True
-                            )
-
-                            df_i_a = df_o[df_o['Player'] == ps_a]
-                            ri_a = [["MATCH"] + calcola_stats(df_i_a)]
-                            for s in sorted(df_i_a['Set'].dropna().unique()):
-                                ri_a.append([f"Set {int(float(s))}"] + calcola_stats(df_i_a[df_i_a['Set'] == s]))
-
-                            st.dataframe(
-                                pd.DataFrame(ri_a, columns=cols_h).style.apply(stile_zebra, axis=None).apply(stile_righe, axis=1).hide(axis="index").format({"Media Km/h": "{:.1f}"}, precision=1),
-                                use_container_width=True
-                            )
+                                fs_a = st.selectbox(f"Fase {nome_avv}:", fase_a_default, key="fs_a_new")
+                            rg_a = build_player_rows(df_o, fs_a)
+                            a_list = [r[0] for r in rg_a]
+                            if a_list:
+                                with col_gioc_a:
+                                    ps_a = st.selectbox(f"Giocatore {nome_avv}:", a_list, key="ps_a_new")
+                                st.dataframe(
+                                    pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:])
+                                    .style.apply(stile_zebra, axis=None)
+                                    .hide(axis="index")
+                                    .format({"Media Km/h": "{:.1f}"}, precision=1),
+                                    use_container_width=True
+                                )
+                                ri_a = build_single_player_rows(df_o, ps_a)
+                                st.dataframe(
+                                    pd.DataFrame(ri_a, columns=cols_h)
+                                    .style.apply(stile_zebra, axis=None)
+                                    .apply(stile_righe, axis=1)
+                                    .hide(axis="index")
+                                    .format({"Media Km/h": "{:.1f}"}, precision=1),
+                                    use_container_width=True
+                                )
+                            else:
+                                st.info("Nessun giocatore avversario disponibile in questa selezione.")
                         else:
-                            rg_a = []
-                            st.info("Nessun giocatore avversario disponibile in questa selezione.")
+                            st.info("Nessun dato disponibile per l'avversario.")
 
                         df_p_raw = pd.DataFrame(rg_p, columns=["Player"] + cols_h[1:]) if rg_p else pd.DataFrame(columns=["Player"] + cols_h[1:])
                         df_o_raw = pd.DataFrame(rg_a, columns=["Player"] + cols_h[1:]) if rg_a else pd.DataFrame(columns=["Player"] + cols_h[1:])
@@ -786,9 +806,10 @@ elif scelta == "Match":
                         if not df_p_raw.empty or not df_o_raw.empty:
                             buffer_player = io.BytesIO()
                             with pd.ExcelWriter(buffer_player, engine='xlsxwriter') as writer:
-                                sdoppia_percentuali(df_p_raw).to_excel(writer, sheet_name='Perugia_Player')
+                                if not df_p_raw.empty:
+                                    sdoppia_percentuali(df_p_raw).to_excel(writer, sheet_name='Perugia_Player', index=False)
                                 if not df_o_raw.empty:
-                                    sdoppia_percentuali(df_o_raw).to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30])
+                                    sdoppia_percentuali(df_o_raw).to_excel(writer, sheet_name=f'{nome_avv}_Player'[:30], index=False)
                             st.download_button(
                                 label="📥 Scarica Report Player",
                                 data=buffer_player.getvalue(),
@@ -799,42 +820,17 @@ elif scelta == "Match":
 
                         st.divider()
                         st.subheader("📊 Sequenza Cronologica Battute (BtxBT)")
+                        if set_disponibili_report:
+                            set_scelto = st.selectbox(
+                                "Seleziona il Set:",
+                                set_disponibili_report,
+                                format_func=lambda x: f"Set {int(float(x))}"
+                            )
+                            df_set = df_report[df_report['Set_Num'] == float(set_scelto)].copy()
 
-                        set_disponibili = sorted(df_report['Set'].dropna().unique())
-                        if set_disponibili:
-                            set_scelto = st.selectbox("Seleziona il Set:", set_disponibili, format_func=lambda x: f"Set {int(float(x))}")
-                            df_set = df_report[df_report['Set'] == set_scelto].copy()
-
-                            nomi_team = df_report['Team'].dropna().unique()
+                            nomi_team = [x for x in df_set['Team'].dropna().unique() if str(x).strip() != '']
                             team_sir = next((t for t in nomi_team if any(key in str(t).upper() for key in ['SIR', 'PERUGIA'])), None)
                             team_avv = next((t for t in nomi_team if t != team_sir), None)
-
-                            def genera_tabella_per_team(df_input, nome_team_target):
-                                if not nome_team_target:
-                                    return pd.DataFrame()
-                                df_team = df_input[df_input['Team'] == nome_team_target]
-                                giocatori = sorted(df_team['Player'].dropna().unique())
-                                if not giocatori:
-                                    return pd.DataFrame()
-                                data_rows = []
-                                max_battute = df_team.groupby('Player').size().max()
-                                for i in range(max_battute):
-                                    row = {}
-                                    for p_name in giocatori:
-                                        p_battute = df_team[df_team['Player'] == p_name]
-                                        if i < len(p_battute):
-                                            b = p_battute.iloc[i]
-                                            row[p_name] = f"{b['Tipo']} {b['Vel.']}"
-                                        else:
-                                            row[p_name] = ""
-                                    data_rows.append(row)
-                                return pd.DataFrame(data_rows)
-
-                            def evidenzia_errori(val):
-                                v = str(val).upper()
-                                if ' N' in v or ' F' in v:
-                                    return 'background-color: #ffffcc; font-weight: bold;'
-                                return ''
 
                             st.markdown("#### 🏐 PERUGIA")
                             df_p_bt = genera_tabella_per_team(df_set, team_sir)
@@ -853,37 +849,45 @@ elif scelta == "Match":
                             if not df_p_bt.empty or not df_a_bt.empty:
                                 buffer_bt = io.BytesIO()
                                 with pd.ExcelWriter(buffer_bt, engine='xlsxwriter') as writer:
-                                    sdoppia_btxbt(df_p_bt).to_excel(writer, sheet_name='Perugia')
+                                    if not df_p_bt.empty:
+                                        sdoppia_btxbt(df_p_bt).to_excel(writer, sheet_name='Perugia', index=False)
                                     if not df_a_bt.empty:
-                                        sdoppia_btxbt(df_a_bt).to_excel(writer, sheet_name='Avversario')
+                                        sdoppia_btxbt(df_a_bt).to_excel(writer, sheet_name='Avversario', index=False)
                                 st.download_button(
                                     label=f"📥 Scarica BtxBT Set {int(float(set_scelto))}",
                                     data=buffer_bt.getvalue(),
-                                    file_name=f"BtxBT_Set_{set_scelto}.xlsx",
-                                    key=f"btn_btxbt_multi_{set_scelto}"
+                                    file_name=f"BtxBT_Set_{int(float(set_scelto))}.xlsx",
+                                    key=f"btn_btxbt_multi_{int(float(set_scelto))}"
                                 )
-
                         else:
-                            st.subheader("📊 Analisi Visiva della Battuta")
-                            df_graf = df_report[df_report['Vel_Num'].notna()].copy()
-                            if not df_graf.empty:
-                                st.markdown("##### 🏎️ Distribuzione Potenza")
-                                fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all",
-                                                    color_discrete_map={'PERUGIA': '#C41E3A', info['Avv.']: '#0047AB'})
-                                st.plotly_chart(fig_box, use_container_width=True)
+                            st.info("Nessun set disponibile per la sequenza cronologica delle battute.")
 
-                                st.markdown("##### 📈 Trend Velocità per Set")
-                                df_trend = df_graf.groupby(['Set', 'Team'])['Vel_Num'].mean().reset_index()
-                                fig_line = px.line(df_trend, x="Set", y="Vel_Num", color="Team", markers=True)
-                                st.plotly_chart(fig_line, use_container_width=True)
+                    elif m_rep == "GRAFICI":
+                        st.markdown("<h2 style='text-align: center;'>📈 GRAFICI BATTUTA</h2>", unsafe_allow_html=True)
+                        col1, col2, col3 = st.columns(3)
+                        col1.success(f"**Manifestazione**\n\n{info['Partita']}")
+                        col2.success(f"**Data**\n\n{info['Data']}")
+                        col3.success(f"**Avversario**\n\n{nome_avv}")
 
-                                st.markdown("##### 🏆 Top 8 Performance")
-                                df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
-                                df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
-                                fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
-                                st.plotly_chart(fig_bar, use_container_width=True)
-                            else:
-                                st.warning("Dati di velocità non disponibili.")
+                        df_graf = df_report[df_report['Vel_Num'].notna()].copy()
+                        if not df_graf.empty:
+                            st.markdown("##### 🏎️ Distribuzione Potenza")
+                            fig_box = px.box(df_graf, x="Team", y="Vel_Num", color="Team", points="all")
+                            st.plotly_chart(fig_box, use_container_width=True)
+
+                            st.markdown("##### 📈 Trend Velocità per Set")
+                            df_trend = df_graf.groupby(['Set_Num', 'Team'])['Vel_Num'].mean().reset_index()
+                            fig_line = px.line(df_trend, x="Set_Num", y="Vel_Num", color="Team", markers=True)
+                            fig_line.update_layout(xaxis_title="Set", yaxis_title="Velocità media (km/h)")
+                            st.plotly_chart(fig_line, use_container_width=True)
+
+                            st.markdown("##### 🏆 Top 8 Performance")
+                            df_top = df_graf.groupby(['Player', 'Team'])['Vel_Num'].mean().reset_index()
+                            df_top = df_top.sort_values(by='Vel_Num', ascending=False).head(8)
+                            fig_bar = px.bar(df_top, x='Vel_Num', y='Player', color='Team', orientation='h', text_auto='.1f')
+                            st.plotly_chart(fig_bar, use_container_width=True)
+                        else:
+                            st.warning("Dati di velocità non disponibili.")
 
 elif scelta == "Trend Team/Player":
 
