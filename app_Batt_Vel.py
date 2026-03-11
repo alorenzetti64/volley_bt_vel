@@ -384,7 +384,7 @@ def stile_righe(row):
 
 # --- 3. FUNZIONI GITHUB ---
 def get_github_client():
-    token = st.secrets["github"]["access_token"]
+    token = st.secrets["github"].get("access_token") or st.secrets["github"].get("token")
     auth = Auth.Token(token)
     return Github(auth=auth)
 
@@ -542,7 +542,7 @@ elif scelta == "Match":
                     df_report['Vel_Num'] = df_report['Vel.'].apply(clean_vel_val)
                     info = df_report.iloc[0]
                     nome_avv = str(info['Avv.']).upper()
-                    cols_h = ["Fase", "Tot", "Spin", "Media Km/h", ">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
+                    cols_h = ["Fase", "Tot.SPIN", "Spin valide", "Media Km/h", ">=120", ">=115 <120", ">=110 <115", ">=100 <110", "<100", "[V] var.ni", "Errori [N]+[F]", "Rete [N]", "Fuori [NF]"]
 
                     if m_rep == "REPORT":
                         st.markdown("<h2 style='text-align: center;'>📋 REPORT VELOCITÀ BATTUTA SPIN</h2>", unsafe_allow_html=True)
