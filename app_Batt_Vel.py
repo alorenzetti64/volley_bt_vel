@@ -8,6 +8,62 @@ import textwrap
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+
+def parse_match_dates(series):
+    """Converte date eterogenee del database in datetime.
+    Gestisce anche formati tipo '07-mar' tipici dei file battute.
+    """
+    s = series.astype(str).str.strip()
+    s = s.replace({'': pd.NA, 'nan': pd.NA, 'NaT': pd.NA, 'None': pd.NA})
+
+    # 1) tentativi standard
+    dt = pd.to_datetime(s, errors='coerce', dayfirst=True)
+    mask = dt.isna() & s.notna()
+    if mask.any():
+        dt.loc[mask] = pd.to_datetime(s.loc[mask], errors='coerce', format='mixed', dayfirst=True)
+
+    # 2) numeri seriali Excel
+    mask = dt.isna() & s.notna() & s.str.fullmatch(r'\d+(?:\.0+)?', na=False)
+    if mask.any():
+        nums = pd.to_numeric(s.loc[mask], errors='coerce')
+        dt.loc[mask] = pd.to_datetime(nums, unit='D', origin='1899-12-30', errors='coerce')
+
+    # 3) formato breve senza anno: 07-mar / 7 set / 07_mar
+    mask = dt.isna() & s.notna()
+    if mask.any():
+        mesi = {
+            'gen': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'mag': 5, 'giu': 6,
+            'lug': 7, 'ago': 8, 'set': 9, 'sett': 9, 'sep': 9,
+            'ott': 10, 'nov': 11, 'dic': 12
+        }
+        oggi = pd.Timestamp.today()
+        season_end_year = oggi.year if oggi.month <= 6 else oggi.year + 1
+
+        estratti = s.loc[mask].str.lower().str.extract(r'^(\d{1,2})[\s\-\/_\.]+([a-zàéìòù]{3,4})(?:[\s\-\/_\.]+(\d{2,4}))?$')
+        parsed = []
+        for giorno, mese_txt, anno_txt in estratti.itertuples(index=False, name=None):
+            if pd.isna(giorno) or pd.isna(mese_txt):
+                parsed.append(pd.NaT)
+                continue
+            mese_key = str(mese_txt).strip().replace('.', '')[:4]
+            mese = mesi.get(mese_key) or mesi.get(mese_key[:3])
+            if not mese:
+                parsed.append(pd.NaT)
+                continue
+            if pd.notna(anno_txt):
+                anno = int(anno_txt)
+                if anno < 100:
+                    anno += 2000
+            else:
+                anno = season_end_year if mese <= 6 else season_end_year - 1
+            try:
+                parsed.append(pd.Timestamp(year=anno, month=int(mese), day=int(giorno)))
+            except Exception:
+                parsed.append(pd.NaT)
+        dt.loc[mask] = pd.Series(parsed, index=s.loc[mask].index)
+
+    return dt
+
 def _safe_pdf_text(value):
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -921,20 +977,7 @@ elif scelta == "Trend Team/Player":
             # 2. PULIZIA DATI
             # =========================================================
             df_trend_base['Data_raw'] = df_trend_base['Data'].astype(str).str.strip()
-            df_trend_base['Data'] = pd.to_datetime(
-                df_trend_base['Data_raw'],
-                errors='coerce',
-                dayfirst=True
-            )
-
-            mask_nat = df_trend_base['Data'].isna()
-            if mask_nat.any():
-                df_trend_base.loc[mask_nat, 'Data'] = pd.to_datetime(
-                    df_trend_base.loc[mask_nat, 'Data_raw'],
-                    errors='coerce',
-                    format='mixed'
-                )
-
+            df_trend_base['Data'] = parse_match_dates(df_trend_base['Data_raw'])
             df_trend_base = df_trend_base.dropna(subset=['Data']).copy()
 
             if df_trend_base.empty:
@@ -1318,14 +1361,7 @@ elif scelta == "Storico Avversari":
         else:
             # pulizia base (conversione date robusta)
             df_base['Data_raw'] = df_base['Data'].astype(str).str.strip()
-            df_base['Data'] = pd.to_datetime(df_base['Data_raw'], errors='coerce', dayfirst=True)
-            mask_nat = df_base['Data'].isna()
-            if mask_nat.any():
-                df_base.loc[mask_nat, 'Data'] = pd.to_datetime(
-                    df_base.loc[mask_nat, 'Data_raw'],
-                    errors='coerce',
-                    format='mixed'
-                )
+            df_base['Data'] = parse_match_dates(df_base['Data_raw'])
             df_base = df_base.dropna(subset=['Data']).copy()
             df_base['Data_Solo'] = df_base['Data'].dt.date
             df_base['Avv.'] = df_base['Avv.'].astype(str).str.strip()
