@@ -8,3 +8,4 @@ xlsxwriter
 matplotlib
 sqlalchemy>=2.0
 psycopg[binary]
+reportlab==4.2.5
