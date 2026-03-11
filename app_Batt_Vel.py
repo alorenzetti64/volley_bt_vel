@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from github import Github, Auth
 import io
+import unicodedata
 import time
 import textwrap
 import matplotlib.pyplot as plt
@@ -65,15 +66,36 @@ def parse_match_dates(series):
 
     return dt
 
+def _rimuovi_accenti_testo(valore):
+    valore = str(valore)
+    valore = unicodedata.normalize("NFKD", valore)
+    return "".join(ch for ch in valore if not unicodedata.combining(ch))
+
+
 def normalizza_nomi_giocatori(df, colonna='Player'):
     if colonna not in df.columns:
         return df
     df = df.copy()
     s = df[colonna].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True)
-    chiave = s.str.casefold()
-    validi = chiave.notna() & chiave.ne('') & chiave.ne('nan') & chiave.ne('none')
-    s.loc[validi] = s.loc[validi].str.upper()
-    df[colonna] = s
+
+    alias_display = {
+        'PLOTNYSKYI': 'PLOTNYTSKYI',
+        'PLOTNYTSKYI': 'PLOTNYTSKYI',
+        'SE': 'SEMENIUK',
+        'SEMENIUK': 'SEMENIUK',
+        'SOLE': 'SOLÉ',
+        'SOLÉ': 'SOLÉ',
+    }
+
+    def _canon(v):
+        raw = str(v).strip()
+        if raw == '' or raw.lower() in ('nan', 'none'):
+            return raw
+        up = raw.upper()
+        up_noacc = _rimuovi_accenti_testo(up)
+        return alias_display.get(up, alias_display.get(up_noacc, up))
+
+    df[colonna] = s.apply(_canon)
     return df
 
 def _safe_pdf_text(value):
@@ -271,6 +293,7 @@ def load_from_github():
     try:
         from github import Auth, Github
         import io
+import unicodedata
         
         # Questa riga cerca il token che DEVE essere nei Secrets di Streamlit Cloud
         auth = Auth.Token(st.secrets["github"]["token"])
