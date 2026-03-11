@@ -262,39 +262,46 @@ def stile_zebra(x):
     return df_stili
 
 def sdoppia_percentuali(df):
-    # Colonne da dividere (devono corrispondere a quelle nelle tue tabelle)
-    cols_to_fix = [">120", "115-120", "110-115", "100-110", "<100", "Var.ni", "Err", "Net", "Out"]
-    
-    data_split = {}
+    """Prepara un DataFrame piatto per Excel, evitando MultiIndex.
+    Le colonne tipo '12 (34.5%)' vengono divise in due colonne: N e %.
+    """
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
-    # 1. Colonne fisse iniziali
-    prime_colonne = [c for c in df.columns if c not in cols_to_fix]
-    for col in prime_colonne:
-        data_split[(col, "")] = df[col]
+    cols_to_fix = [
+        ">=120", ">=115 <120", ">=110 <115", ">=100 <110", "<100",
+        "[V] var.ni", "Errori [N]+[F]", "Rete [N]", "Fuori [NF]"
+    ]
 
-    # 2. Sdoppiamento colonne con numeri e percentuali
-    for col in cols_to_fix:
-        if col in df.columns:
-            # Aggiungiamo .iloc[:, 0] per risolvere l'errore delle dimensioni
-            data_split[(col, "N°")] = df[col].str.extract(r'(\d+)').iloc[:, 0].astype(float)
-            data_split[(col, "%")] = df[col].str.extract(r'\((.*)%\)').iloc[:, 0].astype(float) / 100
+    df_out = pd.DataFrame(index=df.index)
 
-    # 3. Creazione MultiIndex
-    df_new = pd.DataFrame(data_split)
-    df_new.columns = pd.MultiIndex.from_tuples(df_new.columns)
-    return df_new
+    for col in df.columns:
+        if col in cols_to_fix:
+            s = df[col].astype(str)
+            num = pd.to_numeric(s.str.extract(r'(\d+)').iloc[:, 0], errors='coerce')
+            pct = pd.to_numeric(s.str.extract(r'\(([-\d.,]+)%\)').iloc[:, 0].str.replace(',', '.', regex=False), errors='coerce') / 100
+            df_out[f'{col} N'] = num
+            df_out[f'{col} %'] = pct
+        else:
+            df_out[col] = df[col]
+
+    return df_out
+
 
 def sdoppia_btxbt(df):
-    if df.empty: return df
-    data_split = {}
+    """Prepara un DataFrame piatto per Excel, evitando MultiIndex.
+    Ogni colonna viene sdoppiata in Tipo e Vel/Err.
+    """
+    if df is None or df.empty:
+        return df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+    df_out = pd.DataFrame(index=df.index)
     for col in df.columns:
-        # Separiamo il testo (Tipo) dal numero o codice esito (Vel.)
-        data_split[(col, "Tipo")] = df[col].str.extract(r'([a-zA-Z]+)').iloc[:, 0]
-        data_split[(col, "Vel/Err")] = df[col].str.extract(r'(\d+|[VNFE])').iloc[:, 0]
-    
-    df_new = pd.DataFrame(data_split)
-    df_new.columns = pd.MultiIndex.from_tuples(df_new.columns)
-    return df_new
+        s = df[col].astype(str)
+        df_out[f'{col} Tipo'] = s.str.extract(r'([A-Za-z]+)').iloc[:, 0]
+        df_out[f'{col} Vel/Err'] = s.str.extract(r'(\d+|[VNFE])').iloc[:, 0]
+
+    return df_out
 
 # --- 1. CONFIGURAZIONE E COSTANTI ---
 COLUMNS_A_H = ['Data', 'Partita', 'Avv.', 'Team', 'Set', 'Player', 'Tipo', 'Vel.']
