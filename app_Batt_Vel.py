@@ -435,7 +435,7 @@ if scelta == "Caricamento Dati":
     with tab1:
             uploaded = st.file_uploader("Seleziona file .xlsm", type=["xlsm"])
             if uploaded:
-df_raw = pd.read_excel(uploaded, sheet_name="Foglio1")
+                df_raw = pd.read_excel(uploaded, sheet_name="Foglio1")
                 st.write("DEBUG RAW colonne originali:", df_raw.columns.tolist())
                 st.write("DEBUG RAW righe totali:", len(df_raw))
                 st.dataframe(df_raw.head(20))
