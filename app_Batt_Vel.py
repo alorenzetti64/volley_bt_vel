@@ -316,8 +316,7 @@ def clean_vel_val(val):
     except: return None
 
 def calcola_stats(df_in):
-    st.error("SONO DENTRO CALCOLA_STATS")
-    df = df_in.copy()
+        df = df_in.copy()
 
     # normalizzazione
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
@@ -337,12 +336,31 @@ def calcola_stats(df_in):
             return 'F'
         return ''
 
-    df_spin['Code'] = df_spin['VelS'].apply(normalize_code)
+def calcola_stats(df_in):
+    df = df_in.copy()
 
-    # SPIN TOTALI = tutte le righe spin
+    # Normalizzo colonne
+    df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
+    df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
+
+    # Tengo solo le battute SPIN
+    df_spin = df[df['TipoU'] == 'SPIN'].copy()
+
+    # TOT = tutte le SPIN, comprese quelle con V / N / F
     tot = len(df_spin)
 
-    # SPIN VALIDE = solo quelle numeriche
+    def normalize_code(s):
+        s = str(s).strip().upper()
+        if s.startswith('V'):
+            return 'V'
+        if s.startswith('N'):
+            return 'N'
+        if s.startswith('F'):
+            return 'F'
+        return ''
+
+    df_spin['Code'] = df_spin['VelS'].apply(normalize_code)
+
     def clean_spin_numeric(val):
         s = str(val).strip().upper()
         if s in ['', 'NAN', 'NONE']:
@@ -354,10 +372,11 @@ def calcola_stats(df_in):
         except Exception:
             return None
 
+    # SPIN valide = solo quelle numeriche
     df_spin['Vel_Num'] = df_spin['Vel.'].apply(clean_spin_numeric)
     df_spin_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
-
     n_spin = len(df_spin_valide)
+
     media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
 
     n_var = (df_spin['Code'] == 'V').sum()
@@ -375,7 +394,7 @@ def calcola_stats(df_in):
     f4 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 100) & (df_spin_valide['Vel_Num'] < 110)]), n_spin)
     f5 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] < 100]), n_spin)
 
-    var_str = fmt_f(n_var, n_spin)
+    var_str = fmt_f(n_var, tot)
     err_str = fmt_f(n_err_tot, tot)
     net_str = fmt_f(n_net, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
     out_str = fmt_f(n_out, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
