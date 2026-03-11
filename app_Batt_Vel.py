@@ -318,16 +318,14 @@ def clean_vel_val(val):
 def calcola_stats(df_in):
     df = df_in.copy()
 
-    # Normalizzazione colonne
+    # normalizzazione
     df['TipoU'] = df['Tipo'].astype(str).str.upper().str.strip()
     df['VelS'] = df['Vel.'].astype(str).str.upper().str.strip()
 
-    # Considero solo le battute SPIN
-    df = df[df['TipoU'] == 'SPIN'].copy()
+    # considero solo le battute SPIN
+    df_spin = df[df['TipoU'] == 'SPIN'].copy()
 
-    # TOT SPIN = tutte le battute spin, comprese V / N / F
-    tot = len(df)
-
+    # codici speciali
     def normalize_code(s):
         s = str(s).strip().upper()
         if s.startswith('V'):
@@ -338,9 +336,12 @@ def calcola_stats(df_in):
             return 'F'
         return ''
 
-    df['Code'] = df['VelS'].apply(normalize_code)
+    df_spin['Code'] = df_spin['VelS'].apply(normalize_code)
 
-    # SPIN VALIDE = solo quelle numeriche pure
+    # SPIN TOTALI = tutte le righe spin
+    tot = len(df_spin)
+
+    # SPIN VALIDE = solo quelle numeriche
     def clean_spin_numeric(val):
         s = str(val).strip().upper()
         if s in ['', 'NAN', 'NONE']:
@@ -352,15 +353,15 @@ def calcola_stats(df_in):
         except Exception:
             return None
 
-    df['Vel_Num'] = df['Vel.'].apply(clean_spin_numeric)
-    df_spin_valide = df[df['Vel_Num'].notna()].copy()
+    df_spin['Vel_Num'] = df_spin['Vel.'].apply(clean_spin_numeric)
+    df_spin_valide = df_spin[df_spin['Vel_Num'].notna()].copy()
 
     n_spin = len(df_spin_valide)
     media = df_spin_valide['Vel_Num'].mean() if n_spin > 0 else 0
 
-    n_var = (df['Code'] == 'V').sum()
-    n_net = (df['Code'] == 'N').sum()
-    n_out = (df['Code'] == 'F').sum()
+    n_var = (df_spin['Code'] == 'V').sum()
+    n_net = (df_spin['Code'] == 'N').sum()
+    n_out = (df_spin['Code'] == 'F').sum()
     n_err_tot = n_net + n_out
 
     def fmt_f(c, t):
@@ -373,7 +374,7 @@ def calcola_stats(df_in):
     f4 = fmt_f(len(df_spin_valide[(df_spin_valide['Vel_Num'] >= 100) & (df_spin_valide['Vel_Num'] < 110)]), n_spin)
     f5 = fmt_f(len(df_spin_valide[df_spin_valide['Vel_Num'] < 100]), n_spin)
 
-    var_str = fmt_f(n_var, tot)
+    var_str = fmt_f(n_var, n_spin)
     err_str = fmt_f(n_err_tot, tot)
     net_str = fmt_f(n_net, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
     out_str = fmt_f(n_out, n_err_tot) if n_err_tot > 0 else '0 (0.0%)'
