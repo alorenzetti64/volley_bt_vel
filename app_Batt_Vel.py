@@ -316,6 +316,7 @@ def clean_vel_val(val):
     except: return None
 
 def calcola_stats(df_in):
+    st.error("SONO DENTRO CALCOLA_STATS")
     df = df_in.copy()
 
     # normalizzazione
